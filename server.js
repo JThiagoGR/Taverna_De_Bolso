@@ -41,6 +41,37 @@ function collidesWithToken(room,p,x,y){
     return Math.hypot(o.x-x,o.y-y)<rr;
   });
 }
+
+function findFreeSpawn(room, preferredX, preferredY, isNpc=false){
+  const step=60;
+  const spots=[
+    [preferredX,preferredY],
+    [preferredX+step,preferredY],
+    [preferredX-step,preferredY],
+    [preferredX,preferredY+step],
+    [preferredX,preferredY-step],
+    [preferredX+step,preferredY+step],
+    [preferredX-step,preferredY+step],
+    [preferredX+step,preferredY-step],
+    [preferredX-step,preferredY-step],
+  ];
+
+  for(const [x,y] of spots){
+    const fake={id:'__spawn__',isNpc};
+    const blocked=room.players.some(o=>Math.hypot(o.x-x,o.y-y)<40);
+    if(!blocked)return {x,y};
+  }
+
+  let x=preferredX,y=preferredY;
+  for(let i=0;i<80;i++){
+    x=preferredX+(i%10)*step;
+    y=preferredY+Math.floor(i/10)*step;
+    const blocked=room.players.some(o=>Math.hypot(o.x-x,o.y-y)<40);
+    if(!blocked)return {x,y};
+  }
+  return {x:preferredX,y:preferredY};
+}
+
 function sanitizeWall(w){if(!Array.isArray(w)||w.length!==2)return null;const a=w[0],b=w[1];if(!Array.isArray(a)||!Array.isArray(b))return null;return [[Math.round(Number(a[0])||0),Math.round(Number(a[1])||0)],[Math.round(Number(b[0])||0),Math.round(Number(b[1])||0)]];}
 
 io.on('connection',s=>{
@@ -60,15 +91,16 @@ io.on('connection',s=>{
   if(!s.isMaster){
     let p=r.players.find(x=>x.id===s.pid);
     if(!p){
+      const spawn=findFreeSpawn(r,300,300,false);
       p={
         id:s.pid,
         name:String(d.name||'Jogador').slice(0,40),
-        x:400,
-        y:300,
+        x:spawn.x,
+        y:spawn.y,
         hp:10,
         maxHp:10,
         ca:10,
-        light:6,
+        light:1,
         ownerId:s.pid,
         isNpc:false,
         isMaster:false,
@@ -78,7 +110,7 @@ io.on('connection',s=>{
     }else{
       p.name=String(d.name||p.name||'Jogador').slice(0,40);
       p.isMaster=false;
-      if(p.light===undefined||p.light===null||p.light==='')p.light=6;
+      if(p.light===undefined||p.light===null||p.light==='')p.light=1;
     }
   }
 
@@ -116,7 +148,7 @@ io.on('connection',s=>{
  s.on('addNpc',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
   const c=r.players.filter(p=>p.isNpc).length,hp=Math.max(1,parseInt(d&&d.hp)||10),maxHp=Math.max(1,parseInt(d&&d.maxHp)||hp),ca=Math.max(1,parseInt(d&&d.ca)||10);
-  const npc={id:'npc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),name:String((d&&d.name)||'NPC').slice(0,35)+' '+(c+1),x:400+(c%5)*60,y:300+Math.floor(c/5)*60,hp,maxHp,ca,light:0,ownerId:s.pid,isNpc:true,img:''};
+  const spawn=findFreeSpawn(r,520+(c%5)*60,300+Math.floor(c/5)*60,true);const npc={id:'npc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),name:String((d&&d.name)||'NPC').slice(0,35)+' '+(c+1),x:spawn.x,y:spawn.y,hp,maxHp,ca,light:0,ownerId:s.pid,isNpc:true,img:''};
   r.players.push(npc);io.to(s.room).emit('playerAdded',npc);io.to(s.room).emit('npcAdded',npc);io.to(s.room).emit('state',r);
  });
 
@@ -139,6 +171,17 @@ io.on('connection',s=>{
  s.on('addWall',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
   const w=sanitizeWall(d.wall);if(!w)return;r.walls.push(w);if(r.walls.length>500)r.walls=r.walls.slice(-500);io.to(s.room).emit('wallAdded',w);
+ });
+ s.on('addWalls',d=>{
+  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
+  const arr=Array.isArray(d.walls)?d.walls:[];
+  const added=[];
+  for(const raw of arr.slice(0,200)){
+    const w=sanitizeWall(raw);
+    if(w){r.walls.push(w);added.push(w);}
+  }
+  if(r.walls.length>1000)r.walls=r.walls.slice(-1000);
+  if(added.length)io.to(s.room).emit('wallsAdded',added);
  });
  s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];io.to(s.room).emit('wallsCleared');});
  s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.mapW=0;r.mapH=0;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('state',r);});

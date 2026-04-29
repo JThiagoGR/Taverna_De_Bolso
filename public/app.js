@@ -36,23 +36,8 @@ function centerOnToken(t){
   offsetY=camTargetY;
 }
 
-function updateFollowButton(){
-  const b=document.getElementById('tFollow');
-  if(!b)return;
-  b.textContent=followMode?'🔒':'🔓';
-  b.title=followMode?'Câmera travada no token':'Câmera livre';
-  b.classList.toggle('active',followMode);
-}
-function toggleFollow(){
-  followMode=!followMode;
-  const b=document.getElementById('tFollow');
-  if(b){
-    b.textContent=followMode?'🔒':'🔓';
-    b.title=followMode?'Câmera travada no token':'Câmera livre';
-    b.classList.toggle('active',followMode);
-  }
-  if(followMode)followOwnToken();updateFollowButton();
-}
+function updateFollowButton(){return;}
+function toggleFollow(){followMode=!followMode;if(followMode)followOwnToken();}
 
 function clampCamera(){
   // Câmera livre: não limita pan.
@@ -62,6 +47,7 @@ function clampCamera(){
 
 const socket=io();const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
 let lastPinchDist=0,lastPinchScale=1;
+let drawMode='line', freeDrawPoints=null, circleStart=null;
 let me=null,players=[],walls=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=false,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
 let drawPending=false,lastEmitMove=0,lastEmitZoom=0;
 let mapWidth=0,mapHeight=0;
@@ -218,6 +204,7 @@ socket.on('npcAdded',p=>updateOrAddPlayer(p));
 socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;if(p.id===selectedId)syncTokenPanel();requestDraw();}});
 socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
 socket.on('wallAdded',w=>{walls.push(w);draw();});
+socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
 socket.on('wallsCleared',()=>{walls=[];draw();});
   socket.on('allCleared',()=>{walls=[];players=players.filter(p=>!p.isNpc);mapData=null;mapImg=null;mapWidth=0;mapHeight=0;draw();});
 socket.on('mapSet',data=>{
@@ -250,7 +237,73 @@ socket.on('fogSet',f=>{fogEnabled=!!f;updateFogLightButtons();requestDraw();});
 socket.on('fogUpdated',f=>{fogEnabled=!!f;updateFogLightButtons();requestDraw();});
 socket.on('lightSet',l=>{globalLight=!!Number(l);updateFogLightButtons();requestDraw();});
 socket.on('lightUpdated',l=>{globalLight=!!Number(l);updateFogLightButtons();requestDraw();});
-function setTool(t){tool=t;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));if(t==='move')document.getElementById('tMove').classList.add('active');if(t==='ruler')document.getElementById('tRuler').classList.add('active');if(t==='draw')document.getElementById('tDraw').classList.add('active');if(t==='pan')document.getElementById('tPan').classList.add('active');if(t==='clear')clearWalls();}
+
+function cycleDrawTool(){
+  const modes=['line','free','circle'];
+  const i=modes.indexOf(drawMode);
+  drawMode=modes[(i+1)%modes.length];
+  setTool('draw');
+  updateDrawButton();
+}
+
+function updateDrawButton(){
+  const b=document.getElementById('tDraw');
+  if(!b)return;
+  if(drawMode==='line'){b.textContent='✏️';b.title='Desenho: Parede reta';}
+  if(drawMode==='free'){b.textContent='〰️';b.title='Desenho: Traço livre';}
+  if(drawMode==='circle'){b.textContent='⭕';b.title='Desenho: Círculo';}
+}
+
+function previewDrawShape(x,y){
+  if(!me?.isMaster)return;
+  ctx.save();
+  ctx.translate(offsetX,offsetY);
+  ctx.scale(scale,scale);
+  ctx.strokeStyle='#c97c3d';
+  ctx.lineWidth=2/scale;
+  ctx.setLineDash([6/scale,4/scale]);
+
+  if(drawMode==='line'&&wallStart){
+    ctx.beginPath();
+    ctx.moveTo(wallStart[0],wallStart[1]);
+    ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
+    ctx.stroke();
+  }
+
+  if(drawMode==='free'&&freeDrawPoints&&freeDrawPoints.length>1){
+    ctx.beginPath();
+    ctx.moveTo(freeDrawPoints[0][0],freeDrawPoints[0][1]);
+    for(const p of freeDrawPoints.slice(1))ctx.lineTo(p[0],p[1]);
+    ctx.stroke();
+  }
+
+  if(drawMode==='circle'&&circleStart){
+    const r=Math.hypot(x-circleStart[0],y-circleStart[1]);
+    ctx.beginPath();
+    ctx.arc(circleStart[0],circleStart[1],r,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function makeCircleWalls(cx,cy,r){
+  const segs=Math.max(12,Math.min(64,Math.round(r/12)));
+  const out=[];
+  for(let i=0;i<segs;i++){
+    const a1=(Math.PI*2*i)/segs;
+    const a2=(Math.PI*2*(i+1))/segs;
+    out.push([[cx+Math.cos(a1)*r,cy+Math.sin(a1)*r],[cx+Math.cos(a2)*r,cy+Math.sin(a2)*r]]);
+  }
+  return out;
+}
+
+function emitWallsBatch(wallsBatch){
+  if(!wallsBatch||!wallsBatch.length)return;
+  socket.emit('addWalls',{room:me.room,walls:wallsBatch});
+}
+
+function setTool(t){tool=t;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));if(t==='move')document.getElementById('tMove').classList.add('active');if(t==='ruler')document.getElementById('tRuler').classList.add('active');if(t==='draw'){document.getElementById('tDraw').classList.add('active');updateDrawButton();}if(t==='pan')document.getElementById('tPan').classList.add('active');if(t==='clear')clearWalls();}
 function getPos(e){const r=canvas.getBoundingClientRect();return[(e.clientX-r.left-offsetX)/scale,(e.clientY-r.top-offsetY)/scale];}
 
 function tokenRadius(p){return 14;}
@@ -274,7 +327,7 @@ function blockedMoveLocal(p,nx,ny){
 }
 function tokenLightRadius(p){
   const raw=p?p.light:undefined;
-  const v=(raw===undefined||raw===null||raw==='')?6:Math.max(0,Number(raw)||0);
+  const v=(raw===undefined||raw===null||raw==='')?1:Math.max(0,Number(raw)||0);
   if(v<=0)return 0;
   return v<=20?v*50:v*5;
 }
@@ -332,7 +385,10 @@ canvas.addEventListener('mousedown',e=>{
 
   if(tool==='draw'){
     if(!me?.isMaster)return;
-    wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='line')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='free')freeDrawPoints=[[x,y]];
+    if(drawMode==='circle')circleStart=[x,y];
+    dragging=null;
     return;
   }
 
@@ -380,18 +436,13 @@ canvas.addEventListener('mousemove',e=>{
     return;
   }
 
-  if(wallStart&&me?.isMaster){
+  if(tool==='draw'&&me?.isMaster&&(wallStart||freeDrawPoints||circleStart)){
+    if(drawMode==='free'&&freeDrawPoints){
+      const last=freeDrawPoints[freeDrawPoints.length-1];
+      if(!last||Math.hypot(last[0]-x,last[1]-y)>8)freeDrawPoints.push([x,y]);
+    }
     requestDraw();
-    ctx.save();
-    ctx.translate(offsetX,offsetY);
-    ctx.scale(scale,scale);
-    ctx.strokeStyle='#c97c3d';
-    ctx.lineWidth=2/scale;
-    ctx.beginPath();
-    ctx.moveTo(wallStart[0],wallStart[1]);
-    ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
-    ctx.stroke();
-    ctx.restore();
+    previewDrawShape(x,y);
   }
 });
 
@@ -404,12 +455,21 @@ canvas.addEventListener('mouseup',e=>{
     return;
   }
 
-  if(wallStart&&me?.isMaster){
-    const end=[Math.round(x/50)*50,Math.round(y/50)*50];
-    if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
-      socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+  if(tool==='draw'&&me?.isMaster){
+    if(drawMode==='line'&&wallStart){
+      const end=[Math.round(x/50)*50,Math.round(y/50)*50];
+      if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
     }
-    wallStart=null;
+    if(drawMode==='free'&&freeDrawPoints&&freeDrawPoints.length>1){
+      const wallsBatch=[];
+      for(let i=0;i<freeDrawPoints.length-1;i++)wallsBatch.push([freeDrawPoints[i],freeDrawPoints[i+1]]);
+      emitWallsBatch(wallsBatch);
+    }
+    if(drawMode==='circle'&&circleStart){
+      const r=Math.hypot(x-circleStart[0],y-circleStart[1]);
+      if(r>8)emitWallsBatch(makeCircleWalls(circleStart[0],circleStart[1],r));
+    }
+    wallStart=null;freeDrawPoints=null;circleStart=null;
   }
 
   if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
@@ -466,7 +526,10 @@ canvas.addEventListener('touchstart',e=>{
 
   if(tool==='draw'){
     if(!me?.isMaster)return;
-    wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='line')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='free')freeDrawPoints=[[x,y]];
+    if(drawMode==='circle')circleStart=[x,y];
+    dragging=null;
     return;
   }
 
@@ -539,18 +602,13 @@ canvas.addEventListener('touchmove',e=>{
     return;
   }
 
-  if(wallStart&&me?.isMaster){
+  if(tool==='draw'&&me?.isMaster&&(wallStart||freeDrawPoints||circleStart)){
+    if(drawMode==='free'&&freeDrawPoints){
+      const last=freeDrawPoints[freeDrawPoints.length-1];
+      if(!last||Math.hypot(last[0]-x,last[1]-y)>8)freeDrawPoints.push([x,y]);
+    }
     requestDraw();
-    ctx.save();
-    ctx.translate(offsetX,offsetY);
-    ctx.scale(scale,scale);
-    ctx.strokeStyle='#c97c3d';
-    ctx.lineWidth=2/scale;
-    ctx.beginPath();
-    ctx.moveTo(wallStart[0],wallStart[1]);
-    ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
-    ctx.stroke();
-    ctx.restore();
+    previewDrawShape(x,y);
   }
 },{passive:false});
 
