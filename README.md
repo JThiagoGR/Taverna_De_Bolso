@@ -1,9 +1,15 @@
-# Taverna De Bolso - Railway Layout Antigo Corrigido
+# Taverna De Bolso - Railway com Layout do Render
 
-Correção aplicada:
-- Login voltou para o layout antigo.
-- IDs do HTML agora batem com o app.js.
-- Botões Entrar como Jogador/Mestre usam join(false)/join(true).
-- Canvas voltou para id="canvas".
-- Painel Mestre, ficha, dados e seletor de imagem antigos mantidos.
-- Pronto para Railway com package.json e Procfile.
+Layout aplicado a partir da versão visual do Render:
+https://taverna-server.onrender.com/
+
+Mantém:
+- Railway pronto
+- process.env.PORT
+- npm start
+- socket.io relativo
+- toolbar superior
+- painel Mestre lateral
+- seletor de imagem do token
+- ficha do token
+- dados
