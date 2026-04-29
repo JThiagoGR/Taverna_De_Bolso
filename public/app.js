@@ -275,21 +275,154 @@ function tokenLightRadius(p){
   const raw=p?p.light:undefined;
   const v=(raw===undefined||raw===null||raw==='')?6:Math.max(0,Number(raw)||0);
   if(v<=0)return 0;
-  // valor 1-20 = quadrados de 50px; acima disso = pés aproximados
   return v<=20?v*50:v*5;
 }
-canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){dragging=null;rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){if(me&&!me.isMaster){followMode=false;updateFollowButton();}dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
-canvas.addEventListener('mousemove',e=>{if(tool==='ruler'&&rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});requestDraw();return;}if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;camTargetX=offsetX;camTargetY=offsetY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
-canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);rulerStart=null;dragging=null;});
-canvas.addEventListener('wheel',e=>{
-  e.preventDefault();
-  if(!me||!me.isMaster)return;
-  scale=Math.max(0.5,Math.min(3,scale*(e.deltaY<0?1.1:0.9)));
-  emitZoomThrottled();
+
+
+
+
+
+
+
+
+// ===== EVENTOS CANVAS CORRIGIDOS: RÉGUA PRIORITÁRIA + TOKEN + PAN =====
+function findTokenAt(x,y,rad=26){
+  let hit=null,best=999999;
+  players.forEach(p=>{
+    const d=Math.hypot(p.x-x,p.y-y);
+    if(d<rad&&d<best){best=d;hit=p;}
+  });
+  return hit;
+}
+
+function beginRuler(x,y){
+  dragging=null;
+  rulerStart=[x,y];
+  rulerEnd=[x,y];
+  window.sharedRuler={a:rulerStart,b:rulerEnd};
+  socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
   requestDraw();
+}
+
+function moveRuler(x,y){
+  if(!rulerStart)return;
+  rulerEnd=[x,y];
+  window.sharedRuler={a:rulerStart,b:rulerEnd};
+  socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
+  requestDraw();
+}
+
+function endRuler(){
+  if(rulerStart){
+    socket.emit('setRuler',{room:me.room,ruler:null});
+    window.sharedRuler=null;
+  }
+  rulerStart=null;
+  rulerEnd=null;
+}
+
+canvas.addEventListener('mousedown',e=>{
+  const [x,y]=getPos(e);
+
+  if(tool==='ruler'){
+    beginRuler(x,y);
+    return;
+  }
+
+  if(tool==='draw'){
+    if(!me?.isMaster)return;
+    wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    return;
+  }
+
+  if(tool==='pan'){
+    if(me&&!me.isMaster){followMode=false;updateFollowButton?.();}
+    dragging='pan';
+    canvas.dataset.px=e.clientX;
+    canvas.dataset.py=e.clientY;
+    return;
+  }
+
+  const hit=findTokenAt(x,y,26);
+  if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
+  if(hit&&tool==='move'){
+    dragging=hit;
+    selectedId=hit.id;
+    tokenPanelHidden=false;
+    tokenPanelOpen=false;
+    syncTokenPanel();
+  }
 });
+
+canvas.addEventListener('mousemove',e=>{
+  const [x,y]=getPos(e);
+
+  if(tool==='ruler'){
+    if(rulerStart)moveRuler(x,y);
+    return;
+  }
+
+  if(tool==='pan'&&dragging==='pan'){
+    offsetX+=e.clientX-Number(canvas.dataset.px||e.clientX);
+    offsetY+=e.clientY-Number(canvas.dataset.py||e.clientY);
+    canvas.dataset.px=e.clientX;
+    canvas.dataset.py=e.clientY;
+    camTargetX=offsetX;
+    camTargetY=offsetY;
+    requestDraw();
+    return;
+  }
+
+  if(dragging&&dragging!=='pan'){
+    if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
+    if(!blockedMoveLocal(dragging,x,y)){
+      smoothTokenMove(dragging,x,y);
+      if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);
+      emitMoveThrottled(dragging);
+      requestDraw();
+    }
+    return;
+  }
+
+  if(wallStart&&me?.isMaster){
+    requestDraw();
+    ctx.save();
+    ctx.translate(offsetX,offsetY);
+    ctx.scale(scale,scale);
+    ctx.strokeStyle='#c97c3d';
+    ctx.lineWidth=2/scale;
+    ctx.beginPath();
+    ctx.moveTo(wallStart[0],wallStart[1]);
+    ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
+    ctx.stroke();
+    ctx.restore();
+  }
+});
+
+canvas.addEventListener('mouseup',e=>{
+  const [x,y]=getPos(e);
+
+  if(tool==='ruler'){
+    endRuler();
+    dragging=null;
+    return;
+  }
+
+  if(wallStart&&me?.isMaster){
+    const end=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
+      socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+    }
+    wallStart=null;
+  }
+
+  if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
+  dragging=null;
+});
+
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();
+
   if(e.touches.length===2){
     if(!me||!me.isMaster)return;
     const a=e.touches[0],b=e.touches[1];
@@ -302,36 +435,50 @@ canvas.addEventListener('touchstart',e=>{
     dragging=null;wallStart=null;rulerStart=null;
     return;
   }
-  if(e.touches.length===1){
-    const t=e.touches[0];
-    const [x,y]=getPos(t);
-    if(tool==='draw'){
-      if(!me?.isMaster)return;
-      wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
-    }else if(tool==='ruler'){
-      dragging=null;rulerStart=[x,y];rulerEnd=[x,y];
-      window.sharedRuler={a:rulerStart,b:rulerEnd};
-      socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
-    }else if(tool==='pan'){
-      if(!me?.isMaster)return;
-      dragging='pan';canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;
-    }else{
-      let hit=null;
-      players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<30)hit=p;});
-      if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
-      if(hit&&tool==='move'){
-        dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();
-      }
-    }
+
+  const t=e.touches[0];
+  const [x,y]=getPos(t);
+
+  if(tool==='ruler'){
+    beginRuler(x,y);
+    return;
+  }
+
+  if(tool==='draw'){
+    if(!me?.isMaster)return;
+    wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    return;
+  }
+
+  if(tool==='pan'){
+    if(me&&!me.isMaster){followMode=false;updateFollowButton?.();}
+    dragging='pan';
+    canvas.dataset.px=t.clientX;
+    canvas.dataset.py=t.clientY;
+    return;
+  }
+
+  const hit=findTokenAt(x,y,30);
+  if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
+  if(hit&&tool==='move'){
+    dragging=hit;
+    selectedId=hit.id;
+    tokenPanelHidden=false;
+    tokenPanelOpen=false;
+    syncTokenPanel();
+  }else{
+    dragging='pan';
+    canvas.dataset.px=t.clientX;
+    canvas.dataset.py=t.clientY;
   }
 },{passive:false});
 
 canvas.addEventListener('touchmove',e=>{
   e.preventDefault();
+
   if(e.touches.length===2&&lastPinchDist&&me?.isMaster){
     const a=e.touches[0],b=e.touches[1];
     const dist=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-    const oldScale=scale;
     scale=Math.max(0.5,Math.min(3,lastPinchScale*(dist/lastPinchDist)));
     const cx=Number(canvas.dataset.pinchX)||window.innerWidth/2;
     const cy=Number(canvas.dataset.pinchY)||window.innerHeight/2;
@@ -340,63 +487,85 @@ canvas.addEventListener('touchmove',e=>{
     const ratio=scale/lastPinchScale;
     offsetX=cx-(cx-pox)*ratio;
     offsetY=cy-(cy-poy)*ratio;
+    camTargetX=offsetX;
+    camTargetY=offsetY;
     emitZoomThrottled();
     requestDraw();
     return;
   }
-  if(e.touches.length===1){
-    const t=e.touches[0];
-    if(tool==='ruler'&&rulerStart){rulerEnd=getPos(t);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});requestDraw();return;}
-    if(tool==='pan'&&dragging==='pan'){
-      offsetX+=t.clientX-canvas.dataset.px;
-      offsetY+=t.clientY-canvas.dataset.py;
-      canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;
-      camTargetX=offsetX;camTargetY=offsetY;
-      requestDraw();
-    }else if(dragging&&dragging!=='pan'){
-      if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
-      const [x,y]=getPos(t);
-      if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}
-    }else if(wallStart&&me?.isMaster){
-      const [x,y]=getPos(t);
-      requestDraw();
-      ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);
-      ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();
-      ctx.moveTo(wallStart[0],wallStart[1]);
-      ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
-      ctx.stroke();ctx.restore();
-    }else if(rulerStart){
-      rulerEnd=getPos(t);
-      window.sharedRuler={a:rulerStart,b:rulerEnd};
-      socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
+
+  const t=e.touches[0];
+  const [x,y]=getPos(t);
+
+  if(tool==='ruler'){
+    if(rulerStart)moveRuler(x,y);
+    return;
+  }
+
+  if(tool==='pan'&&dragging==='pan'){
+    offsetX+=t.clientX-Number(canvas.dataset.px||t.clientX);
+    offsetY+=t.clientY-Number(canvas.dataset.py||t.clientY);
+    canvas.dataset.px=t.clientX;
+    canvas.dataset.py=t.clientY;
+    camTargetX=offsetX;
+    camTargetY=offsetY;
+    requestDraw();
+    return;
+  }
+
+  if(dragging&&dragging!=='pan'){
+    if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
+    if(!blockedMoveLocal(dragging,x,y)){
+      smoothTokenMove(dragging,x,y);
+      if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);
+      emitMoveThrottled(dragging);
       requestDraw();
     }
+    return;
+  }
+
+  if(wallStart&&me?.isMaster){
+    requestDraw();
+    ctx.save();
+    ctx.translate(offsetX,offsetY);
+    ctx.scale(scale,scale);
+    ctx.strokeStyle='#c97c3d';
+    ctx.lineWidth=2/scale;
+    ctx.beginPath();
+    ctx.moveTo(wallStart[0],wallStart[1]);
+    ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
+    ctx.stroke();
+    ctx.restore();
   }
 },{passive:false});
 
 canvas.addEventListener('touchend',e=>{
   e.preventDefault();
+
   if(e.touches.length<2)lastPinchDist=0;
   if(e.touches.length>0)return;
+
+  if(tool==='ruler'){
+    endRuler();
+    dragging=null;
+    return;
+  }
+
   const t=e.changedTouches&&e.changedTouches[0];
   if(t){
-    const n=Date.now();
     const [x,y]=getPos(t);
-    if(n-lastTap<300&&Math.abs(x-lastX)<30&&Math.abs(y-lastY)<30){
-      let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<25)c=p;});
-      if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc)openPlayerSheet(c.id);
-    }
-    lastTap=n;lastX=x;lastY=y;
     if(wallStart&&me?.isMaster){
       const end=[Math.round(x/50)*50,Math.round(y/50)*50];
-      if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+      if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
+        socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+      }
       wallStart=null;
     }
   }
-  if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}
+
   if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
-  if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);rulerStart=null;rulerEnd=null;dragging=null;
-});
+  dragging=null;
+},{passive:false});
 
 canvas.addEventListener('dblclick',e=>{const[x,y]=getPos(e);let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<20)c=p;});if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc){openPlayerSheet(c.id);}});
 function isVisible(px,py,tx,ty){for(const w of walls){if(lineIntersect(px,py,tx,ty,w[0][0],w[0][1],w[1][0],w[1][1]))return false;}return true;}
@@ -404,6 +573,51 @@ function lineIntersect(x1,y1,x2,y2,x3,y3,x4,y4){const d=(x1-x2)*(y3-y4)-(y1-y2)*
 function toggleDice(){const d=document.getElementById('dice');d.style.display=d.style.display==='none'?'block':'none';}
 function roll(notation){if(!notation)return;const m=notation.match(/(\d*)d(\d+)([+-]\d+)?/i);if(!m)return;const count=parseInt(m[1]||1);const sides=parseInt(m[2]);const mod=parseInt(m[3]||0);socket.emit('rollDice',{room:me.room,player:me.name,notation,count,sides,mod});}
 socket.on('diceRolled',d=>{const log=document.getElementById('diceLog');const div=document.createElement('div');div.style.marginBottom='4px';div.style.padding='4px';div.style.background='rgba(255,255,255,0.05)';div.style.borderRadius='4px';const rollsStr=d.rolls.join('+');const modStr=d.mod?`${d.mod>0?'+':''}${d.mod}`:'';div.innerHTML=`<strong style="color:#c97c3d">${d.player}</strong>: ${d.notation} = [${rollsStr}]${modStr} = <strong style="color:#fff">${d.total}</strong>`;log.insertBefore(div,log.firstChild);while(log.children.length>10)log.removeChild(log.lastChild);document.getElementById('dice').style.display='block';});
+
+
+function drawSingleTokenScreen(p){
+  if(!p)return;
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+
+  const sx=offsetX+(p.x*scale);
+  const sy=offsetY+(p.y*scale);
+  const r=Math.max(12, tokenRadius(p)*scale);
+  const img=tokenImages[p.id];
+
+  if(img){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(sx,sy,r,0,Math.PI*2);
+    ctx.clip();
+    ctx.drawImage(img,sx-r,sy-r,r*2,r*2);
+    ctx.restore();
+    ctx.strokeStyle='rgba(255,255,255,0.75)';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(sx,sy,r,0,Math.PI*2);
+    ctx.stroke();
+  }else{
+    ctx.fillStyle='#3a6';
+    ctx.shadowColor='#3a6';
+    ctx.shadowBlur=12;
+    ctx.beginPath();
+    ctx.arc(sx,sy,r*0.9,0,Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.65)';
+    ctx.lineWidth=2;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle='#fff';
+  ctx.font='12px sans-serif';
+  ctx.textAlign='center';
+  ctx.shadowColor='#000';
+  ctx.shadowBlur=4;
+  ctx.fillText(p.name||'Token',sx,sy-r-8);
+  ctx.restore();
+}
 
 function applyFinalFog(){
   if(!fogEnabled)return;
@@ -418,14 +632,14 @@ function applyFinalFog(){
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
+  let sx=0, sy=0, radiusScreen=0;
   if(mePlayer){
     const radiusWorld=tokenLightRadius(mePlayer);
-    const radiusScreen=radiusWorld*scale;
+    radiusScreen=radiusWorld*scale;
+    sx=offsetX+(mePlayer.x*scale);
+    sy=offsetY+(mePlayer.y*scale);
 
     if(radiusScreen>0){
-      const sx=offsetX+(mePlayer.x*scale);
-      const sy=offsetY+(mePlayer.y*scale);
-
       ctx.globalCompositeOperation='destination-out';
       const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
       grad.addColorStop(0,'rgba(0,0,0,1)');
@@ -440,6 +654,12 @@ function applyFinalFog(){
 
   ctx.restore();
   ctx.globalCompositeOperation='source-over';
+
+  // Redesenha o próprio token do jogador por cima da névoa quando ele tem luz,
+  // garantindo que o jogador sempre veja seu personagem.
+  if(mePlayer && radiusScreen>0){
+    drawSingleTokenScreen(mePlayer);
+  }
 }
 
 function preloadTokenImages(){
@@ -556,60 +776,11 @@ function loop(){
 loop();
 
 // FIX TOUCH MOBILE
-canvas.addEventListener('touchstart', e=>{
-  const t = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  const x = (t.clientX - rect.left - offsetX) / scale;
-  const y = (t.clientY - rect.top - offsetY) / scale;
 
-  let hit = null;
-  players.forEach(p=>{
-    if(Math.hypot(p.x - x, p.y - y) < 25){
-      hit = p;
-    }
-  });
 
-  if(hit){
-    dragging = hit;
-  }else{
-    dragging = 'pan';
-    canvas.dataset.px = t.clientX;
-    canvas.dataset.py = t.clientY;
-  }
-});
 
-canvas.addEventListener('touchmove', e=>{
-  const t = e.touches[0];
 
-  if(dragging === 'pan'){
-    const dx = t.clientX - canvas.dataset.px;
-    const dy = t.clientY - canvas.dataset.py;
 
-    offsetX += dx;
-    offsetY += dy;
-
-    canvas.dataset.px = t.clientX;
-    canvas.dataset.py = t.clientY;
-
-    requestDraw();
-    return;
-  }
-
-  if(dragging){
-    const rect = canvas.getBoundingClientRect();
-    const x = (t.clientX - rect.left - offsetX) / scale;
-    const y = (t.clientY - rect.top - offsetY) / scale;
-
-    smoothTokenMove(dragging,x,y);
-
-    emitMoveThrottled(dragging);
-    requestDraw();
-  }
-});
-
-canvas.addEventListener('touchend', ()=>{
-  dragging = null;
-});
 
 
 // ===== DADOS CORRIGIDOS / ROBUSTOS =====
