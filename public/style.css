@@ -20,7 +20,7 @@ body{background:#0a0a0a;color:#eee;font-family:system-ui,-apple-system,sans-seri
 #masterPanel h3{margin-bottom:12px;color:#c97c3d;font-size:16px}
 #masterPanel h4{margin:12px 0 8px;font-size:14px;color:#aaa}
 #masterPanel label{display:block;margin-bottom:10px;font-size:13px}
-#masterPanel input[type="file"],#masterPanel input[type="text"],#masterPanel input[type="number"]{width:100%;padding:6px;margin-top:4px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#eee;font-size:13px}
+#masterPanel input{width:100%;padding:6px;margin-top:4px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#eee;font-size:13px}
 #masterPanel button{width:100%;padding:8px;margin-bottom:6px;background:#2a2a2a;border:1px solid #333;color:#eee;border-radius:6px;cursor:pointer;font-size:13px}
 #masterPanel button:hover{background:#333}
 #masterPanel hr{border:none;border-top:1px solid #333;margin:12px 0}
