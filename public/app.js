@@ -651,16 +651,23 @@ function drawTokensInsideLight(mePlayer, radiusWorld){
   players.forEach(p=>{
     const d=Math.hypot(p.x-mePlayer.x,p.y-mePlayer.y);
 
-    // Com névoa ativa, jogador só vê tokens dentro da própria luz.
-    if(d>radiusWorld)return;
+    // Com nuvem ativa:
+    // - próprio token sempre aparece se tiver luz
+    // - NPCs/jogadores só aparecem dentro da luz do jogador
+    if(p.id!==mePlayer.id && d>radiusWorld)return;
 
     drawSingleTokenScreen(p);
   });
 }
 
 function applyFinalFog(){
+  // Nuvem desligada: tudo visível.
   if(!fogEnabled)return;
+
+  // Luz global ligada: revela tudo.
   if(globalLight)return;
+
+  // Mestre vê tudo.
   if(me&&me.isMaster)return;
 
   const mePlayer=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid&&!p.isNpc);
@@ -668,6 +675,8 @@ function applyFinalFog(){
   ctx.save();
   ctx.setTransform(1,0,0,1,0,0);
   ctx.globalCompositeOperation='source-over';
+
+  // Escurece tudo primeiro.
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -682,6 +691,8 @@ function applyFinalFog(){
       const sx=offsetX+(mePlayer.x*scale);
       const sy=offsetY+(mePlayer.y*scale);
 
+      // Abre um círculo transparente na nuvem.
+      // O mapa que já foi desenhado embaixo aparece dentro dessa área.
       ctx.globalCompositeOperation='destination-out';
       const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
       grad.addColorStop(0,'rgba(0,0,0,1)');
@@ -697,7 +708,8 @@ function applyFinalFog(){
   ctx.restore();
   ctx.globalCompositeOperation='source-over';
 
-  // Redesenha somente tokens dentro da luz do jogador.
+  // Redesenha os tokens que podem ser vistos dentro da luz.
+  // Isso garante que o token do jogador e NPCs dentro da luz apareçam sobre a nuvem.
   if(mePlayer && radiusWorld>0){
     drawTokensInsideLight(mePlayer, radiusWorld);
   }
