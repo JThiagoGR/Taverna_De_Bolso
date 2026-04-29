@@ -51,8 +51,8 @@ function getOwnToken(){
 }
 function centerOnToken(t){
   if(!t)return;
-  offsetX=window.innerWidth/2-t.x;
-  offsetY=window.innerHeight/2-t.y;
+  offsetX=(canvas.width/2) - ($1.x * scale);
+  offsetY=(canvas.height/2) - ($1.y * scale);
 }
 function followOwnToken(){
   if(!me||me.isMaster)return;
@@ -354,63 +354,25 @@ function saveSheet(){if(!editingPlayer)return;socket.emit('updatePlayer',{room:m
 function delToken(){if(editingPlayer){socket.emit('removePlayer',{room:me.room,id:editingPlayer.id});closeSheet();}}
 function closeSheet(){document.getElementById('sheet').style.display='none';editingPlayer=null;}
 function clearWalls(){socket.emit('clearWalls',{room:me.room});}
-function updatePlayerList(){
-  const list=document.getElementById('playerList');
-  if(!list||!me||!me.isMaster)return;
+function updatePlayerList(){const list=document.getElementById('playerList');if(!list||!me||!me.isMaster)return;list.innerHTML='';players.forEach(p=>{const div=document.createElement('div');div.className='player'+(p.isNpc?' npc':'');div.innerHTML=`<span class="name">${p.name}</span><span class="hp">${p.hp}/${p.maxHp}</span><button class="btn" onclick="openPlayerSheet('${p.id}')">📋</button>`;div.onclick=(e)=>{if(e.target.tagName!=='BUTTON'){selectedId=p.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();center();}};list.appendChild(div);});}
+function openPlayerSheet(id){const p=players.find(x=>x.id===id);if(!p)return;editingPlayer=p;document.getElementById('sheet').style.display='block';document.getElementById('sName').value=p.name;document.getElementById('sHp').value=p.hp;document.getElementById('sMax').value=p.maxHp;document.getElementById('sCa').value=p.ca;document.getElementById('sLight').value=p.light;}
+function openSelectedSheet(){if(selectedId)openPlayerSheet(selectedId);}
+document.getElementById('mapFile')?.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;console.log('Carregando mapa:',f.name);const r=new FileReader();r.onload=ev=>{const data=ev.target.result;console.log('Mapa lido, tamanho:',data.length);document.getElementById('mapUrl').value=data;mapData=data;mapImg=new Image();mapImg.onload=()=>{console.log('Imagem criada, desenhando');draw();};mapImg.onerror=()=>{console.error('Erro ao carregar imagem');};mapImg.src=data;socket.emit('setMap',{room:me.room,mapData:data});};r.readAsDataURL(f);});
+document.getElementById('tokenFile')?.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const p=currentEditableToken();if(!p)return alert('Selecione um token primeiro.');const r=new FileReader();r.onload=ev=>applyTokenImageToPlayer(p,ev.target.result);r.readAsDataURL(f);});
 
-  const playerTokens=players.filter(p=>!p.isNpc);
-  const npcTokens=players.filter(p=>p.isNpc);
-
-  function makeRow(p){
-    const div=document.createElement('div');
-    div.className='player'+(p.isNpc?' npc':' pc');
-    div.innerHTML=`
-      <span class="name">${p.isNpc?'👹':'🧍'} ${p.name||'Token'}</span>
-      <span class="hp">${p.hp}/${p.maxHp}</span>
-      <button class="btn" title="Abrir ficha">📋</button>
-    `;
-    div.querySelector('button').onclick=(e)=>{
-      e.stopPropagation();
-      openPlayerSheet(p.id);
-    };
-    div.onclick=()=>{
-      selectedId=p.id;
-      tokenPanelHidden=false;
-      tokenPanelOpen=false;
-      syncTokenPanel();
-      center();
-    };
-    return div;
-  }
-
-  list.innerHTML='';
-
-  const playersTitle=document.createElement('div');
-  playersTitle.className='listTitle';
-  playersTitle.textContent='JOGADORES';
-  list.appendChild(playersTitle);
-
-  if(playerTokens.length){
-    playerTokens.forEach(p=>list.appendChild(makeRow(p)));
+function toggleMaster(){
+  const m=document.getElementById('master');
+  const btn=document.getElementById('masterToggle');
+  if(!m)return;
+  const isHidden = m.style.display==='none' || window.getComputedStyle(m).display==='none';
+  if(isHidden){
+    m.style.display='block';
+    if(btn)btn.innerText='✕';
+    if(btn)btn.title='Fechar menu';
   }else{
-    const empty=document.createElement('div');
-    empty.className='emptyList';
-    empty.textContent='Nenhum jogador na mesa';
-    list.appendChild(empty);
-  }
-
-  const npcsTitle=document.createElement('div');
-  npcsTitle.className='listTitle';
-  npcsTitle.textContent='NPCs / MONSTROS';
-  list.appendChild(npcsTitle);
-
-  if(npcTokens.length){
-    npcTokens.forEach(p=>list.appendChild(makeRow(p)));
-  }else{
-    const empty=document.createElement('div');
-    empty.className='emptyList';
-    empty.textContent='Nenhum NPC criado';
-    list.appendChild(empty);
+    m.style.display='none';
+    if(btn)btn.innerText='☰';
+    if(btn)btn.title='Abrir menu';
   }
 }
 
