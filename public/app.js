@@ -214,8 +214,8 @@ socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===
 socket.on('playerRemoved',id=>{players=players.filter(p=>p.id!==id);requestDraw();updatePlayerList();});
 socket.on('playerAdded',p=>updateOrAddPlayer(p));
 socket.on('npcAdded',p=>updateOrAddPlayer(p));
-  socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i].x=p.x;players[i].y=p.y;}requestDraw();});
-socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;requestDraw();}});
+  socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i]={...players[i],...p};}else players.push(p);if(p.id===selectedId)syncTokenPanel();requestDraw();});
+socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;if(p.id===selectedId)syncTokenPanel();requestDraw();}});
 socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
 socket.on('wallAdded',w=>{walls.push(w);draw();});
 socket.on('wallsCleared',()=>{walls=[];draw();});
@@ -376,12 +376,7 @@ canvas.addEventListener('mousemove',e=>{
 
   if(dragging&&dragging!=='pan'){
     if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
-    if(!blockedMoveLocal(dragging,x,y)){
-      smoothTokenMove(dragging,x,y);
-      if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);
-      emitMoveThrottled(dragging);
-      requestDraw();
-    }
+    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
     return;
   }
 
@@ -540,12 +535,7 @@ canvas.addEventListener('touchmove',e=>{
 
   if(dragging&&dragging!=='pan'){
     if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
-    if(!blockedMoveLocal(dragging,x,y)){
-      smoothTokenMove(dragging,x,y);
-      if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);
-      emitMoveThrottled(dragging);
-      requestDraw();
-    }
+    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
     return;
   }
 
@@ -661,56 +651,53 @@ function drawTokensInsideLight(mePlayer, radiusWorld){
 }
 
 function applyFinalFog(){
-  // Nuvem desligada: tudo visível.
   if(!fogEnabled)return;
-
-  // Luz global ligada: revela tudo.
   if(globalLight)return;
-
-  // Mestre vê tudo.
   if(me&&me.isMaster)return;
 
   const mePlayer=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid&&!p.isNpc);
+  if(!mePlayer){
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalCompositeOperation='source-over';
+    ctx.fillStyle='rgba(0,0,0,0.97)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.restore();
+    ctx.globalCompositeOperation='source-over';
+    return;
+  }
+
+  const radiusWorld=tokenLightRadius(mePlayer);
+  const radiusScreen=radiusWorld*scale;
+  const sx=offsetX+(mePlayer.x*scale);
+  const sy=offsetY+(mePlayer.y*scale);
 
   ctx.save();
   ctx.setTransform(1,0,0,1,0,0);
   ctx.globalCompositeOperation='source-over';
 
-  // Escurece tudo primeiro.
+  // camada escura cobrindo tudo
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  let radiusWorld=0;
-  let radiusScreen=0;
-
-  if(mePlayer){
-    radiusWorld=tokenLightRadius(mePlayer);
-    radiusScreen=radiusWorld*scale;
-
-    if(radiusScreen>0){
-      const sx=offsetX+(mePlayer.x*scale);
-      const sy=offsetY+(mePlayer.y*scale);
-
-      // Abre um círculo transparente na nuvem.
-      // O mapa que já foi desenhado embaixo aparece dentro dessa área.
-      ctx.globalCompositeOperation='destination-out';
-      const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
-      grad.addColorStop(0,'rgba(0,0,0,1)');
-      grad.addColorStop(0.72,'rgba(0,0,0,0.95)');
-      grad.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=grad;
-      ctx.beginPath();
-      ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
-      ctx.fill();
-    }
+  // recorta a luz do token, revelando o mapa já desenhado por baixo
+  if(radiusScreen>0){
+    ctx.globalCompositeOperation='destination-out';
+    const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
+    grad.addColorStop(0,'rgba(0,0,0,1)');
+    grad.addColorStop(0.75,'rgba(0,0,0,1)');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
+    ctx.fill();
   }
 
   ctx.restore();
   ctx.globalCompositeOperation='source-over';
 
-  // Redesenha os tokens que podem ser vistos dentro da luz.
-  // Isso garante que o token do jogador e NPCs dentro da luz apareçam sobre a nuvem.
-  if(mePlayer && radiusWorld>0){
+  // Tokens visíveis dentro da luz são redesenhados por cima da camada escura.
+  if(radiusWorld>0){
     drawTokensInsideLight(mePlayer, radiusWorld);
   }
 }
@@ -754,7 +741,7 @@ if(mapImg&&mapWidth&&mapHeight){
   ctx.strokeRect(0,0,mapWidth,mapHeight);
   ctx.strokeStyle='rgba(255,255,255,0.06)';
   ctx.lineWidth=1/scale;
-}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});applyFinalFog();const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
+}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});ctx.restore();applyFinalFog();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
 function addNpc(){if(!me||!me.isMaster){alert('Entre como Mestre para criar NPC');return;}socket.emit('addNpc',{room:me.room,name:document.getElementById('npcName').value||'NPC',hp:Number(document.getElementById('npcHp').value)||10,maxHp:Number(document.getElementById('npcHp').value)||Number(document.getElementById('npcHp').value)||10,ca:Number(document.getElementById('npcCa').value)||10});}
 function loadMap(){
   const src=document.getElementById('mapUrl').value;
