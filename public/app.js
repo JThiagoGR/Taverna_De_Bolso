@@ -2,9 +2,8 @@
 
 function smoothTokenMove(p,targetX,targetY){
   if(!p)return;
-  const speed=0.28; // menor = mais lento/suave
-  p.x += (targetX - p.x) * speed;
-  p.y += (targetY - p.y) * speed;
+  p.x = targetX;
+  p.y = targetY;
   clampTokenToMap(p);
 }
 
@@ -42,14 +41,9 @@ function toggleFollow(){
 }
 
 function clampCamera(){
-  if(!mapWidth || !mapHeight) return;
-  const maxX = 0;
-  const maxY = 0;
-  const minX = canvas.width - mapWidth * scale;
-  const minY = canvas.height - mapHeight * scale;
-
-  offsetX = Math.min(maxX, Math.max(minX, offsetX));
-  offsetY = Math.min(maxY, Math.max(minY, offsetY));
+  // Câmera livre: não limita pan.
+  // O limite fica apenas nos tokens quando existe mapa carregado.
+  return;
 }
 
 const socket=io();const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
@@ -270,9 +264,9 @@ function tokenLightRadius(p){
   if(v<=0)return 0;
   return v<=20?v*50:v*5;
 }
-canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
-canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
-canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan')emitZoomThrottled(true);if(dragging==='pan')emitZoomThrottled(true);rulerStart=null;dragging=null;});
+canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){if(me&&!me.isMaster)followMode=false;dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
+canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;camTargetX=offsetX;camTargetY=offsetY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
+canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);rulerStart=null;dragging=null;});
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
   if(!me||!me.isMaster)return;
@@ -342,7 +336,7 @@ canvas.addEventListener('touchmove',e=>{
       offsetX+=t.clientX-canvas.dataset.px;
       offsetY+=t.clientY-canvas.dataset.py;
       canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;
-      emitZoomThrottled();
+      camTargetX=offsetX;camTargetY=offsetY;
       requestDraw();
     }else if(dragging&&dragging!=='pan'){
       if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
@@ -385,8 +379,8 @@ canvas.addEventListener('touchend',e=>{
     }
   }
   if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}
-  if(dragging==='pan')emitZoomThrottled(true);
-  if(dragging==='pan')emitZoomThrottled(true);rulerStart=null;rulerEnd=null;dragging=null;
+  if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
+  if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);rulerStart=null;rulerEnd=null;dragging=null;
 });
 
 canvas.addEventListener('dblclick',e=>{const[x,y]=getPos(e);let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<20)c=p;});if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc){openPlayerSheet(c.id);}});
@@ -439,7 +433,36 @@ function preloadTokenImages(){
     }
   });
 }
-function draw(){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#050507';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.restore();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);if(mapImg)ctx.drawImage(mapImg,0,0);ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1/scale;for(let i=-2000;i<4000;i+=50){ctx.beginPath();ctx.moveTo(i,-2000);ctx.lineTo(i,4000);ctx.stroke();ctx.beginPath();ctx.moveTo(-2000,i);ctx.lineTo(4000,i);ctx.stroke();}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});applyFinalFog();const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
+
+function getGridBounds(){
+  // Com mapa carregado, o grid acompanha exatamente o tamanho da imagem.
+  if(mapImg && mapWidth && mapHeight){
+    return {minX:0,minY:0,maxX:mapWidth,maxY:mapHeight};
+  }
+  // Sem mapa, grid livre/grande.
+  return {minX:-2000,minY:-2000,maxX:4000,maxY:4000};
+}
+
+function draw(){ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#050507';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.restore();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);if(mapImg)ctx.drawImage(mapImg,0,0);ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1/scale;const gb=getGridBounds();
+for(let i=gb.minX;i<=gb.maxX;i+=50){
+  ctx.beginPath();
+  ctx.moveTo(i,gb.minY);
+  ctx.lineTo(i,gb.maxY);
+  ctx.stroke();
+}
+for(let i=gb.minY;i<=gb.maxY;i+=50){
+  ctx.beginPath();
+  ctx.moveTo(gb.minX,i);
+  ctx.lineTo(gb.maxX,i);
+  ctx.stroke();
+}
+if(mapImg&&mapWidth&&mapHeight){
+  ctx.strokeStyle='rgba(201,124,61,0.65)';
+  ctx.lineWidth=2/scale;
+  ctx.strokeRect(0,0,mapWidth,mapHeight);
+  ctx.strokeStyle='rgba(255,255,255,0.06)';
+  ctx.lineWidth=1/scale;
+}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});applyFinalFog();const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
 function addNpc(){if(!me||!me.isMaster){alert('Entre como Mestre para criar NPC');return;}socket.emit('addNpc',{room:me.room,name:document.getElementById('npcName').value||'NPC',hp:Number(document.getElementById('npcHp').value)||10,maxHp:Number(document.getElementById('npcHp').value)||Number(document.getElementById('npcHp').value)||10,ca:Number(document.getElementById('npcCa').value)||10});}
 function loadMap(){
   const src=document.getElementById('mapUrl').value;
