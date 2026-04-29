@@ -1,10 +1,19 @@
 
-function clampTokenToMap(p){
-  if(!p) return;
-  // Sem imagem de mapa carregada = movimento livre.
-  if(!mapImg || !mapWidth || !mapHeight) return;
 
-  const margin = Math.max(14, tokenRadius ? tokenRadius(p) : 20);
+function smoothTokenMove(p,targetX,targetY){
+  if(!p)return;
+  const speed=0.28; // menor = mais lento/suave
+  p.x += (targetX - p.x) * speed;
+  p.y += (targetY - p.y) * speed;
+  clampTokenToMap(p);
+}
+
+function clampTokenToMap(p){
+  if(!p)return;
+  // Sem mapa/imagem carregada = sem limite.
+  if(!mapImg || !mapWidth || !mapHeight)return;
+
+  const margin = Math.max(18, typeof tokenRadius==='function' ? tokenRadius(p) : 20);
 
   p.x = Math.max(margin, Math.min(mapWidth - margin, p.x));
   p.y = Math.max(margin, Math.min(mapHeight - margin, p.y));
@@ -21,9 +30,11 @@ function smoothCamera(){
 }
 
 function centerOnToken(t){
-  if(!t) return;
-  camTargetX = (canvas.width/2) - (t.x * scale);
-  camTargetY = (canvas.height/2) - (t.y * scale);
+  if(!t)return;
+  camTargetX=(canvas.width/2)-(t.x*scale);
+  camTargetY=(canvas.height/2)-(t.y*scale);
+  offsetX=camTargetX;
+  offsetY=camTargetY;
 }
 
 function toggleFollow(){
@@ -260,7 +271,7 @@ function tokenLightRadius(p){
   return v<=20?v*50:v*5;
 }
 canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
-canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;clampTokenToMap(dragging);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
+canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
 canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan')emitZoomThrottled(true);if(dragging==='pan')emitZoomThrottled(true);rulerStart=null;dragging=null;});
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -336,7 +347,7 @@ canvas.addEventListener('touchmove',e=>{
     }else if(dragging&&dragging!=='pan'){
       if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
       const [x,y]=getPos(t);
-      if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;clampTokenToMap(dragging);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}
+      if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}
     }else if(wallStart&&me?.isMaster){
       const [x,y]=getPos(t);
       requestDraw();
@@ -547,10 +558,7 @@ canvas.addEventListener('touchmove', e=>{
     const x = (t.clientX - rect.left - offsetX) / scale;
     const y = (t.clientY - rect.top - offsetY) / scale;
 
-    dragging.x = x;
-    dragging.y = y;
-
-    clampTokenToMap(dragging);
+    smoothTokenMove(dragging,x,y);
 
     emitMoveThrottled(dragging);
     requestDraw();
@@ -560,3 +568,73 @@ canvas.addEventListener('touchmove', e=>{
 canvas.addEventListener('touchend', ()=>{
   dragging = null;
 });
+
+
+// ===== DADOS CORRIGIDOS / ROBUSTOS =====
+function parseDiceNotationFixed(notation){
+  notation=String(notation||'').trim().toLowerCase();
+  if(!notation)return null;
+  const m=notation.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+  if(!m)return null;
+  const count=Math.max(1,Math.min(30,parseInt(m[1]||'1',10)));
+  const sides=Math.max(2,Math.min(1000,parseInt(m[2],10)));
+  const mod=parseInt(m[3]||'0',10);
+  return {notation,count,sides,mod};
+}
+
+function addDiceLogFixed(d){
+  const log=document.getElementById('diceLog');
+  const panel=document.getElementById('dice');
+  if(!log)return;
+
+  const div=document.createElement('div');
+  div.style.marginBottom='4px';
+  div.style.padding='6px';
+  div.style.background='rgba(255,255,255,0.07)';
+  div.style.borderRadius='6px';
+
+  const rolls=Array.isArray(d.rolls)?d.rolls:[];
+  const rollsStr=rolls.join('+');
+  const mod=Number(d.mod)||0;
+  const modStr=mod?`${mod>0?'+':''}${mod}`:'';
+
+  div.innerHTML=`<strong style="color:#c97c3d">${d.player||'Jogador'}</strong>: ${d.notation||'dado'} = [${rollsStr}]${modStr} = <strong style="color:#fff">${d.total}</strong>`;
+  log.insertBefore(div,log.firstChild);
+  while(log.children.length>12)log.removeChild(log.lastChild);
+
+  if(panel)panel.style.display='block';
+}
+
+window.toggleDice=function(){
+  const d=document.getElementById('dice');
+  if(!d)return alert('Painel de dados não encontrado.');
+  d.style.display=(d.style.display==='none'||!d.style.display)?'block':'none';
+};
+
+window.roll=function(notation){
+  const parsed=parseDiceNotationFixed(notation);
+  if(!parsed){
+    alert('Use formato tipo: 1d20, 2d6+3, 1d8-1');
+    return;
+  }
+
+  const payload={
+    room:me?.room||'mesa1',
+    player:me?.name||'Jogador',
+    notation:parsed.notation,
+    count:parsed.count,
+    sides:parsed.sides,
+    mod:parsed.mod
+  };
+
+  if(socket&&socket.connected){
+    socket.emit('rollDice',payload);
+  }else{
+    const rolls=Array.from({length:parsed.count},()=>1+Math.floor(Math.random()*parsed.sides));
+    const total=rolls.reduce((a,b)=>a+b,0)+parsed.mod;
+    addDiceLogFixed({...payload,rolls,total});
+  }
+};
+
+if(socket&&socket.off)socket.off('diceRolled');
+socket.on('diceRolled',d=>addDiceLogFixed(d));

@@ -1,9 +1,9 @@
 
 function clampTokenToMapServer(p, room){
-  // Sem mapa carregado = movimento livre.
-  if(!room || !room.mapData || !room.mapW || !room.mapH) return;
+  // Sem mapa carregado = sem limite.
+  if(!room || !room.mapData || !room.mapW || !room.mapH)return;
 
-  const margin = tokenRadius ? tokenRadius(p) : 20;
+  const margin = Math.max(18, typeof tokenRadius==='function' ? tokenRadius(p) : 20);
 
   p.x = Math.max(margin, Math.min(room.mapW - margin, p.x));
   p.y = Math.max(margin, Math.min(room.mapH - margin, p.y));
@@ -98,7 +98,7 @@ io.on('connection',s=>{
     if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
   if(collidesWithToken(r,p,nx,ny))return;
-  p.x=nx;p.y=ny;clampTokenToMapServer(p, r);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
+  p.x=nx;p.y=ny;clampTokenToMapServer(p, r);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:p.x,y:p.y});
  });
 
  s.on('updatePlayer',d=>{
@@ -150,11 +150,17 @@ io.on('connection',s=>{
  s.on('setRuler',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r)return;r.ruler=d.ruler||null;io.to(s.room).emit('rulerUpdated',r.ruler);});
  s.on('roll',d=>{const room=cleanRoom(d&&d.room)||s.room;io.to(room).emit('rollResult',d);if(d&&d.roll)io.to(room).emit('diceRolled',{player:String(d.name||'Jogador'),notation:'1d20',rolls:[d.roll],total:d.roll,mod:0});});
  s.on('rollDice',d=>{
-  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!d)return;
-  const m=String(d.notation||'1d20').match(/(\d*)d(\d+)([+-]\d+)?/i);if(!m)return;
-  const count=Math.max(1,Math.min(30,parseInt(m[1]||1))),sides=Math.max(2,Math.min(1000,parseInt(m[2]))),mod=parseInt(m[3]||0);
-  const rolls=Array.from({length:count},()=>1+Math.floor(Math.random()*sides)),total=rolls.reduce((a,b)=>a+b,0)+mod;
-  io.to(s.room).emit('diceRolled',{player:String(d.player||'Jogador').slice(0,40),notation:String(d.notation).slice(0,40),rolls,total,mod});
+  const roomName=cleanRoom(d&&d.room)||s.room;
+  const r=rooms[roomName]||rooms[s.room];
+  if(!r||!d)return;
+  const m=String(d.notation||'1d20').match(/^(\d*)d(\d+)([+-]\d+)?$/i);
+  if(!m)return;
+  const count=Math.max(1,Math.min(30,parseInt(m[1]||1)));
+  const sides=Math.max(2,Math.min(1000,parseInt(m[2])));
+  const mod=parseInt(m[3]||0);
+  const rolls=Array.from({length:count},()=>1+Math.floor(Math.random()*sides));
+  const total=rolls.reduce((a,b)=>a+b,0)+mod;
+  io.to(roomName).emit('diceRolled',{player:String(d.player||'Jogador').slice(0,40),notation:String(d.notation).slice(0,40),rolls,total,mod});
  });
  s.on('disconnect',()=>{if(!s.room)return;setTimeout(()=>{const live=io.sockets.adapter.rooms.get(s.room);if(!live||live.size===0)delete rooms[s.room];},5*60*1000);});
 });
