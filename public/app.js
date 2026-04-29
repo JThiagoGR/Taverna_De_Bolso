@@ -160,7 +160,23 @@ socket.on('connect',()=>console.log('Conectado'));
 socket.on('masterError',d=>alert(d?.msg||'Erro de Mestre'));
 socket.on('joined',d=>{me.pid=d.pid;syncTokenPanel();});
 socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===true||String(p.id||'').startsWith('master_')||String(p.ownerId||'').startsWith('master_')));if(me&&!me.isMaster&&!selectedId){const own=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid);if(own)selectedId=own.id;}walls=s.walls||[];fogEnabled=!!s.fog;globalLight=!!Number(s.globalLight||0);preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=requestDraw;mapImg.src=mapData;}updateFogLightButtons();requestDraw();updatePlayerList();focusOwnTokenOnce();});
-  socket.on('zoomUpdated',d=>{if(me&&me.isMaster)return;scale=d.zoom;requestDraw();});
+  socket.on('zoomUpdated', d => {
+  if(me && me.isMaster) return;
+
+  const oldScale = scale;
+  const newScale = d.zoom;
+
+  // centro atual da tela do jogador
+  const centerX = (canvas.width / 2 - offsetX) / oldScale;
+  const centerY = (canvas.height / 2 - offsetY) / oldScale;
+
+  scale = newScale;
+
+  offsetX = canvas.width / 2 - centerX * scale;
+  offsetY = canvas.height / 2 - centerY * scale;
+
+  requestDraw();
+});
   socket.on('rulerUpdated',d=>{window.sharedRuler=d;requestDraw();});
 socket.on('playerRemoved',id=>{players=players.filter(p=>p.id!==id);requestDraw();updatePlayerList();});
 socket.on('playerAdded',p=>updateOrAddPlayer(p));
