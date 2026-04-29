@@ -1,10 +1,12 @@
 
-function clampTokenToMapServer(p, map){
-  if(!map) return;
-  const margin = 20;
+function clampTokenToMapServer(p, room){
+  // Sem mapa carregado = movimento livre.
+  if(!room || !room.mapData || !room.mapW || !room.mapH) return;
 
-  p.x = Math.max(margin, Math.min(map.w - margin, p.x));
-  p.y = Math.max(margin, Math.min(map.h - margin, p.y));
+  const margin = tokenRadius ? tokenRadius(p) : 20;
+
+  p.x = Math.max(margin, Math.min(room.mapW - margin, p.x));
+  p.y = Math.max(margin, Math.min(room.mapH - margin, p.y));
 }
 
 const express=require('express');const http=require('http');const {Server}=require('socket.io');const path=require('path');
@@ -13,7 +15,7 @@ app.use(express.static(path.join(__dirname,'public')));
 const rooms={};
 
 function cleanRoom(room){return String(room||'mesa1').trim().replace(/[^\w\- ]/g,'').slice(0,50)||'mesa1';}
-function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],mapData:null,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};return rooms[id];}
+function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};return rooms[id];}
 function isMaster(s){return !!(s.isMaster||(typeof s.pid==='string'&&s.pid.startsWith('master_')));}
 function canControl(s,p){return !!p&&(isMaster(s)||p.ownerId===s.pid);}
 function num(v,f,min,max){const n=Number(v);return Number.isFinite(n)?Math.max(min,Math.min(max,n)):f;}
@@ -96,7 +98,7 @@ io.on('connection',s=>{
     if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
   if(collidesWithToken(r,p,nx,ny))return;
-  p.x=nx;p.y=ny;clampTokenToMapServer(p, r.map);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
+  p.x=nx;p.y=ny;clampTokenToMapServer(p, r);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
  });
 
  s.on('updatePlayer',d=>{
@@ -139,8 +141,8 @@ io.on('connection',s=>{
   const w=sanitizeWall(d.wall);if(!w)return;r.walls.push(w);if(r.walls.length>500)r.walls=r.walls.slice(-500);io.to(s.room).emit('wallAdded',w);
  });
  s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];io.to(s.room).emit('wallsCleared');});
- s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('state',r);});
- s.on('setMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.mapData=String(d.mapData||'').slice(0,9000000);io.to(s.room).emit('mapUpdated',r.mapData);io.to(s.room).emit('mapSet',r.mapData);});
+ s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.mapW=0;r.mapH=0;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('state',r);});
+ s.on('setMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.mapData=String(d.mapData||'').slice(0,9000000);r.mapW=Math.max(0,Number(d.mapW)||0);r.mapH=Math.max(0,Number(d.mapH)||0);io.to(s.room).emit('mapUpdated',{src:r.mapData,w:r.mapW,h:r.mapH});io.to(s.room).emit('mapSet',{src:r.mapData,w:r.mapW,h:r.mapH});});
  s.on('setFog',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.fog=!!d.fog;io.to(s.room).emit('fogUpdated',r.fog);io.to(s.room).emit('fogSet',r.fog);});
  s.on('setLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
  s.on('setGlobalLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
