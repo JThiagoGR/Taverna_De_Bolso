@@ -1,5 +1,5 @@
 const express=require('express');const http=require('http');const {Server}=require('socket.io');const path=require('path');
-const app=express();const server=http.createServer(app);const io=new Server(server,{cors:{origin:"*",methods:["GET","POST"]}});
+const app=express();const server=http.createServer(app);const io=new Server(server);
 app.use(express.static(path.join(__dirname,'public')));
 const rooms={};
 function lineIntersect(x1,y1,x2,y2,x3,y3,x4,y4){const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);if(!d)return null;const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;return t>=0&&t<=1&&u>=0&&u<=1;}
@@ -26,5 +26,4 @@ io.on('connection',s=>{
  s.on('setRuler',d=>{const r=rooms[d.room];if(!r)return;r.ruler=d.ruler;io.to(d.room).emit('rulerUpdated',d.ruler);});
  s.on('rollDice',d=>{const m=d.notation.match(/(\d+)d(\d+)([+-]\d+)?/);if(!m)return;const n=parseInt(m[1]),f=parseInt(m[2]),mod=parseInt(m[3]||0);const rolls=Array.from({length:n},()=>1+Math.floor(Math.random()*f));const total=rolls.reduce((a,b)=>a+b,0)+mod;io.to(d.room).emit('diceRolled',{player:d.player,notation:d.notation,rolls,total,mod:d.mod});});
 });
-const PORT=process.env.PORT||3000;
-server.listen(PORT,'0.0.0.0',()=>console.log('Taverna De Bolso ONLINE na porta '+PORT));
+server.listen(process.env.PORT||3000,()=>console.log('Taverna De Bolso v9.5'));
