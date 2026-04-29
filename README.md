@@ -1,21 +1,9 @@
-# Taverna De Bolso - Railway com layout antigo
+# Taverna De Bolso - Railway Layout Antigo Corrigido
 
-Esta versão mantém o visual/layout anterior:
-- toolbar superior
-- painel Mestre lateral
-- seletor de imagem de token
-- ficha de token antiga
-- painel de dados antigo
-
-Mantém compatibilidade Railway:
-- `npm start`
-- `process.env.PORT`
-- `const socket=io()`
-- pasta `public`
-
-Corrigido:
-- eventos de mapa `mapSet/mapUpdated`
-- imagem de token persistida
-- zoom só Mestre
-- régua sincronizada
-- paredes controladas pelo Mestre
+Correção aplicada:
+- Login voltou para o layout antigo.
+- IDs do HTML agora batem com o app.js.
+- Botões Entrar como Jogador/Mestre usam join(false)/join(true).
+- Canvas voltou para id="canvas".
+- Painel Mestre, ficha, dados e seletor de imagem antigos mantidos.
+- Pronto para Railway com package.json e Procfile.
