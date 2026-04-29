@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: taverna-de-bolso
-    env: node
-    buildCommand: npm install
-    startCommand: node server.js

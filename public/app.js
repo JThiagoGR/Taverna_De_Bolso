@@ -1,4 +1,4 @@
-const socket=io(window.location.origin,{transports:['websocket','polling'],reconnection:true,reconnectionAttempts:10,reconnectionDelay:1000}); //);const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
+const socket=io();const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
 let lastPinchDist=0,lastPinchScale=1;
 let me=null,players=[],walls=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=true,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
 function resize(){canvas.width=window.innerWidth*devicePixelRatio;canvas.height=window.innerHeight*devicePixelRatio;canvas.style.width=window.innerWidth+'px';canvas.style.height=window.innerHeight+'px';ctx.setTransform(1,0,0,1,0,0);ctx.scale(devicePixelRatio,devicePixelRatio);if(me&&me.isMaster&&window.sharedRuler)try{socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});}catch(e){}draw();}window.addEventListener('resize',resize);resize();
@@ -51,9 +51,7 @@ function applyTokenImageToPlayer(p,img){
 function setMyTokenImg(){setTokenImg();}
 socket.on('connect',()=>console.log('Conectado'));
 socket.on('masterError',d=>alert(d?.msg||'Erro de Mestre'));
-socket.on('connect_error',e=>{console.log('Erro conexão, tentando novamente...');});
-  socket.on('disconnect',()=>{console.log('Desconectado');});
-  socket.on('joined',d=>{me.pid=d.pid;syncTokenPanel();});
+socket.on('joined',d=>{me.pid=d.pid;syncTokenPanel();});
 socket.on('state',s=>{players=s.players||[];walls=s.walls||[];fogEnabled=s.fog;globalLight=s.globalLight||0;preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=draw;mapImg.src=mapData;}draw();updatePlayerList();});
   socket.on('zoomUpdated',d=>{scale=d.zoom;offsetX=d.offsetX;offsetY=d.offsetY;draw();});
   socket.on('rulerUpdated',d=>{window.sharedRuler=d;draw();});
