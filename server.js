@@ -18,11 +18,29 @@ io.on('connection',s=>{
   const roomName=cleanRoom(d.room),r=makeRoom(roomName);
   s.room=roomName;s.isMaster=!!d.isMaster;s.pid=s.isMaster?'master_'+roomName:(d.tokenId?String(d.tokenId).slice(0,60):makeId(d.name,roomName));
   s.join(roomName);
-  if(!s.isMaster){
-    let p=r.players.find(x=>x.id===s.pid);
-    if(!p){p={id:s.pid,name:String(d.name||'Jogador').slice(0,40),x:400,y:300,hp:10,maxHp:10,ca:10,light:30,ownerId:s.pid,isNpc:false,img:''};r.players.push(p);}
-    else p.name=String(d.name||p.name||'Jogador').slice(0,40);
+
+  let p=r.players.find(x=>x.id===s.pid);
+  if(!p){
+    p={
+      id:s.pid,
+      name:String(d.name||(s.isMaster?'Mestre':'Jogador')).slice(0,40),
+      x:s.isMaster?300:400,
+      y:s.isMaster?260:300,
+      hp:s.isMaster?20:10,
+      maxHp:s.isMaster?20:10,
+      ca:s.isMaster?15:10,
+      light:s.isMaster?60:30,
+      ownerId:s.pid,
+      isNpc:false,
+      isMaster:s.isMaster,
+      img:''
+    };
+    r.players.push(p);
+  }else{
+    p.name=String(d.name||p.name||(s.isMaster?'Mestre':'Jogador')).slice(0,40);
+    p.isMaster=s.isMaster;
   }
+
   s.emit('joined',{pid:s.pid,isMaster:s.isMaster});
   s.emit('zoomUpdated',{zoom:r.zoom,offsetX:r.offsetX,offsetY:r.offsetY});
   s.emit('rulerUpdated',r.ruler);

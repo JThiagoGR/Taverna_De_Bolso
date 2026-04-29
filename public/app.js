@@ -1,10 +1,10 @@
 const socket=io();const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
 let lastPinchDist=0,lastPinchScale=1;
-let me=null,players=[],walls=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=true,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
+let me=null,players=[],walls=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=false,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
 let drawPending=false,lastEmitMove=0,lastEmitZoom=0;
 function requestDraw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;draw();});}
 function emitMoveThrottled(token){const now=Date.now();if(now-lastEmitMove<45)return;lastEmitMove=now;socket.emit('move',{room:me.room,id:token.id,x:token.x,y:token.y});}
-function emitZoomThrottled(){if(!me||!me.isMaster)return;const now=Date.now();if(now-lastEmitZoom<60)return;lastEmitZoom=now;socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});}
+function emitZoomThrottled(force=false){if(!me||!me.isMaster)return;const now=Date.now();if(!force&&now-lastEmitZoom<180)return;lastEmitZoom=now;socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});}
 function resize(){canvas.width=window.innerWidth*devicePixelRatio;canvas.height=window.innerHeight*devicePixelRatio;canvas.style.width=window.innerWidth+'px';canvas.style.height=window.innerHeight+'px';ctx.setTransform(1,0,0,1,0,0);ctx.scale(devicePixelRatio,devicePixelRatio);if(me&&me.isMaster&&window.sharedRuler)try{socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});}catch(e){}draw();}window.addEventListener('resize',resize);resize();
 function join(isMaster){const nameEl=document.getElementById('name');const roomEl=document.getElementById('room');const tokenEl=document.getElementById('tokenId');me={name:nameEl.value||'Jogador',room:roomEl.value||'mesa1',isMaster:!!isMaster,pid:null};try{enterFullscreen();}catch(e){}socket.emit('join',{room:me.room,name:me.name,isMaster:me.isMaster,tokenId:tokenEl.value.trim()||undefined});document.getElementById('login').style.display='none';document.getElementById('toolbar').style.display='flex';if(me.isMaster){const isMobile=window.innerWidth<768;document.getElementById('master').style.display=isMobile?'none':'block';document.getElementById('masterToggle').style.display=isMobile?'block':'none';}else{document.getElementById('master').style.display='none';document.getElementById('masterToggle').style.display='none';}setTimeout(()=>{offsetX=window.innerWidth/2-400;offsetY=window.innerHeight/2-300;draw();},100);}
 function enterFullscreen(){
@@ -70,19 +70,19 @@ function updateFogLightButtons(){
 socket.on('connect',()=>console.log('Conectado'));
 socket.on('masterError',d=>alert(d?.msg||'Erro de Mestre'));
 socket.on('joined',d=>{me.pid=d.pid;syncTokenPanel();});
-socket.on('state',s=>{players=s.players||[];walls=s.walls||[];fogEnabled=s.fog;globalLight=s.globalLight||0;preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=draw;mapImg.src=mapData;}updateFogLightButtons();draw();updatePlayerList();});
+socket.on('state',s=>{players=s.players||[];if(me&&!selectedId){const own=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid);if(own)selectedId=own.id;}walls=s.walls||[];fogEnabled=s.fog;globalLight=s.globalLight||0;preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=requestDraw;mapImg.src=mapData;}updateFogLightButtons();requestDraw();updatePlayerList();});
   socket.on('zoomUpdated',d=>{scale=d.zoom;offsetX=d.offsetX;offsetY=d.offsetY;requestDraw();});
   socket.on('rulerUpdated',d=>{window.sharedRuler=d;requestDraw();});
-socket.on('playerRemoved',id=>{players=players.filter(p=>p.id!==id);draw();updatePlayerList();});
-socket.on('playerAdded',p=>{if(!players.find(x=>x.id===p.id))players.push(p);preloadTokenImages();draw();updatePlayerList();syncTokenPanel();});
+socket.on('playerRemoved',id=>{players=players.filter(p=>p.id!==id);requestDraw();updatePlayerList();});
+socket.on('playerAdded',p=>{if(!players.find(x=>x.id===p.id))players.push(p);preloadTokenImages();requestDraw();updatePlayerList();syncTokenPanel();});
   socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i].x=p.x;players[i].y=p.y;}requestDraw();});
 socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;requestDraw();}});
-socket.on('playerUpdated',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i]={...players[i],...p};}else{players.push(p);}preloadTokenImages();draw();updatePlayerList();syncTokenPanel();});
+socket.on('playerUpdated',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i]={...players[i],...p};}else{players.push(p);}preloadTokenImages();requestDraw();updatePlayerList();syncTokenPanel();});
 socket.on('wallAdded',w=>{walls.push(w);draw();});
 socket.on('wallsCleared',()=>{walls=[];draw();});
   socket.on('allCleared',()=>{walls=[];players=players.filter(p=>!p.isNpc);mapData=null;draw();});
-socket.on('mapSet',data=>{mapData=data;mapImg=new Image();mapImg.onload=draw;mapImg.src=data;});
-socket.on('mapUpdated',data=>{mapData=data;mapImg=new Image();mapImg.onload=draw;mapImg.src=data;});
+socket.on('mapSet',data=>{mapData=data;mapImg=new Image();mapImg.onload=requestDraw;mapImg.src=data;});
+socket.on('mapUpdated',data=>{mapData=data;mapImg=new Image();mapImg.onload=requestDraw;mapImg.src=data;});
 socket.on('fogSet',f=>{fogEnabled=!!f;updateFogLightButtons();draw();});
 socket.on('fogUpdated',f=>{fogEnabled=!!f;updateFogLightButtons();draw();});
 socket.on('lightSet',l=>{globalLight=!!Number(l);updateFogLightButtons();draw();});
@@ -91,7 +91,7 @@ function setTool(t){tool=t;document.querySelectorAll('#toolbar button').forEach(
 function getPos(e){const r=canvas.getBoundingClientRect();return[(e.clientX-r.left-offsetX)/scale,(e.clientY-r.top-offsetY)/scale];}
 canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<20)hit=p;});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
 canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;emitZoomThrottled();requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);dragging.x=x;dragging.y=y;emitMoveThrottled(dragging);requestDraw();}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
-canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}rulerStart=null;dragging=null;});
+canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan')emitZoomThrottled(true);rulerStart=null;dragging=null;});
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
   if(!me||!me.isMaster)return;
@@ -100,30 +100,117 @@ canvas.addEventListener('wheel',e=>{
   requestDraw();
 });
 canvas.addEventListener('touchstart',e=>{
-  if(e.touches.length===2){if(!me||!me.isMaster)return;
-    e.preventDefault();
-    const dx=e.touches[0].clientX-e.touches[1].clientX;
-    const dy=e.touches[0].clientY-e.touches[1].clientY;
-    lastPinchDist=Math.hypot(dx,dy);
+  e.preventDefault();
+  if(e.touches.length===2){
+    if(!me||!me.isMaster)return;
+    const a=e.touches[0],b=e.touches[1];
+    lastPinchDist=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
     lastPinchScale=scale;
+    canvas.dataset.pinchX=(a.clientX+b.clientX)/2;
+    canvas.dataset.pinchY=(a.clientY+b.clientY)/2;
+    canvas.dataset.pinchOffsetX=offsetX;
+    canvas.dataset.pinchOffsetY=offsetY;
+    dragging=null;wallStart=null;rulerStart=null;
+    return;
   }
-}, {passive:false});
+  if(e.touches.length===1){
+    const t=e.touches[0];
+    const [x,y]=getPos(t);
+    if(tool==='draw'){
+      if(!me?.isMaster)return;
+      wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    }else if(tool==='ruler'){
+      rulerStart=[x,y];rulerEnd=[x,y];
+      window.sharedRuler={a:rulerStart,b:rulerEnd};
+      socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
+    }else if(tool==='pan'){
+      if(!me?.isMaster)return;
+      dragging='pan';canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;
+    }else{
+      let hit=null;
+      players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<30)hit=p;});
+      if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
+      if(hit&&tool==='move'){
+        dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();
+      }
+    }
+  }
+},{passive:false});
 
 canvas.addEventListener('touchmove',e=>{
-  if(e.touches.length===2){if(!me||!me.isMaster)return;
-    e.preventDefault();
-    const dx=e.touches[0].clientX-e.touches[1].clientX;
-    const dy=e.touches[0].clientY-e.touches[1].clientY;
-    const dist=Math.hypot(dx,dy);
-    scale=Math.max(0.5,Math.min(3,lastPinchScale*(dist/lastPinchDist)));socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});
-    draw();
+  e.preventDefault();
+  if(e.touches.length===2&&lastPinchDist&&me?.isMaster){
+    const a=e.touches[0],b=e.touches[1];
+    const dist=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    const oldScale=scale;
+    scale=Math.max(0.5,Math.min(3,lastPinchScale*(dist/lastPinchDist)));
+    const cx=Number(canvas.dataset.pinchX)||window.innerWidth/2;
+    const cy=Number(canvas.dataset.pinchY)||window.innerHeight/2;
+    const pox=Number(canvas.dataset.pinchOffsetX)||offsetX;
+    const poy=Number(canvas.dataset.pinchOffsetY)||offsetY;
+    const ratio=scale/lastPinchScale;
+    offsetX=cx-(cx-pox)*ratio;
+    offsetY=cy-(cy-poy)*ratio;
+    emitZoomThrottled();
+    requestDraw();
+    return;
   }
-}, {passive:false});
+  if(e.touches.length===1){
+    const t=e.touches[0];
+    if(tool==='pan'&&dragging==='pan'&&me?.isMaster){
+      offsetX+=t.clientX-canvas.dataset.px;
+      offsetY+=t.clientY-canvas.dataset.py;
+      canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;
+      emitZoomThrottled();
+      requestDraw();
+    }else if(dragging&&dragging!=='pan'){
+      if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
+      const [x,y]=getPos(t);
+      dragging.x=x;dragging.y=y;
+      emitMoveThrottled(dragging);
+      requestDraw();
+    }else if(wallStart&&me?.isMaster){
+      const [x,y]=getPos(t);
+      requestDraw();
+      ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);
+      ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();
+      ctx.moveTo(wallStart[0],wallStart[1]);
+      ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
+      ctx.stroke();ctx.restore();
+    }else if(rulerStart){
+      rulerEnd=getPos(t);
+      window.sharedRuler={a:rulerStart,b:rulerEnd};
+      socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
+      requestDraw();
+    }
+  }
+},{passive:false});
+
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault();
+  if(e.touches.length<2)lastPinchDist=0;
+  if(e.touches.length>0)return;
+  const t=e.changedTouches&&e.changedTouches[0];
+  if(t){
+    const n=Date.now();
+    const [x,y]=getPos(t);
+    if(n-lastTap<300&&Math.abs(x-lastX)<30&&Math.abs(y-lastY)<30){
+      let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<25)c=p;});
+      if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc)openPlayerSheet(c.id);
+    }
+    lastTap=n;lastX=x;lastY=y;
+    if(wallStart&&me?.isMaster){
+      const end=[Math.round(x/50)*50,Math.round(y/50)*50];
+      if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+      wallStart=null;
+    }
+  }
+  if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}
+  if(dragging==='pan')emitZoomThrottled(true);
+  rulerStart=null;rulerEnd=null;dragging=null;
+});
 
 canvas.addEventListener('dblclick',e=>{const[x,y]=getPos(e);let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<20)c=p;});if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc){openPlayerSheet(c.id);}});
-canvas.addEventListener('touchstart',e=>{e.preventDefault();if(e.touches.length===1){const t=e.touches[0];const[x,y]=getPos(t);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){dragging='pan';canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;}else{let hit=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<30)hit=p;});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}}});
-canvas.addEventListener('touchmove',e=>{e.preventDefault();if(e.touches.length===1){const t=e.touches[0];if(tool==='pan'&&dragging==='pan'){offsetX+=t.clientX-canvas.dataset.px;offsetY+=t.clientY-canvas.dataset.py;canvas.dataset.px=t.clientX;canvas.dataset.py=t.clientY;emitZoomThrottled();requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(t);dragging.x=x;dragging.y=y;emitMoveThrottled(dragging);requestDraw();}else if(wallStart){const[x,y]=getPos(t);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(t);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}}});
-canvas.addEventListener('touchend',e=>{e.preventDefault();const t=e.changedTouches[0];const n=Date.now();const[x,y]=getPos(t);if(n-lastTap<300&&Math.abs(x-lastX)<30&&Math.abs(y-lastY)<30){let c=null;players.forEach(p=>{if(Math.hypot(p.x-x,p.y-y)<25)c=p;});if(c&&((me.pid&&c.ownerId===me.pid)||me.isMaster)&&!c.isNpc){openPlayerSheet(c.id);}}lastTap=n;lastX=x;lastY=y;if(wallStart){const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}rulerStart=null;dragging=null;});
 function isVisible(px,py,tx,ty){for(const w of walls){if(lineIntersect(px,py,tx,ty,w[0][0],w[0][1],w[1][0],w[1][1]))return false;}return true;}
 function lineIntersect(x1,y1,x2,y2,x3,y3,x4,y4){const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);if(!d)return false;const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;return t>0&&t<1&&u>0&&u<1;}
 function toggleDice(){const d=document.getElementById('dice');d.style.display=d.style.display==='none'?'block':'none';}
