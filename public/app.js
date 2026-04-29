@@ -201,7 +201,7 @@ socket.on('playerAdded',p=>updateOrAddPlayer(p));
 socket.on('npcAdded',p=>updateOrAddPlayer(p));
   socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i].x=p.x;players[i].y=p.y;}requestDraw();});
 socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;requestDraw();}});
-socket.on('playerUpdated',p=>updateOrAddPlayer(p));
+socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
 socket.on('wallAdded',w=>{walls.push(w);draw();});
 socket.on('wallsCleared',()=>{walls=[];draw();});
   socket.on('allCleared',()=>{walls=[];players=players.filter(p=>!p.isNpc);mapData=null;mapImg=null;mapWidth=0;mapHeight=0;draw();});
@@ -258,8 +258,12 @@ function blockedMoveLocal(p,nx,ny){
   });
 }
 function tokenLightRadius(p){
-  const raw=p?p.light:0;
-  // Se não tiver valor salvo ainda, usa 6 quadrados. Se for 0, fica sem visão.
+  // Campo Luz do token:
+  // vazio/sem valor = 6 quadrados
+  // 0 = sem luz
+  // 1-20 = quadrados
+  // >20 = pés aproximados
+  const raw=p?p.light:undefined;
   const v=(raw===undefined||raw===null||raw==='')?6:Math.max(0,Number(raw)||0);
   if(v<=0)return 0;
   return v<=20?v*50:v*5;
@@ -391,19 +395,30 @@ function roll(notation){if(!notation)return;const m=notation.match(/(\d*)d(\d+)(
 socket.on('diceRolled',d=>{const log=document.getElementById('diceLog');const div=document.createElement('div');div.style.marginBottom='4px';div.style.padding='4px';div.style.background='rgba(255,255,255,0.05)';div.style.borderRadius='4px';const rollsStr=d.rolls.join('+');const modStr=d.mod?`${d.mod>0?'+':''}${d.mod}`:'';div.innerHTML=`<strong style="color:#c97c3d">${d.player}</strong>: ${d.notation} = [${rollsStr}]${modStr} = <strong style="color:#fff">${d.total}</strong>`;log.insertBefore(div,log.firstChild);while(log.children.length>10)log.removeChild(log.lastChild);document.getElementById('dice').style.display='block';});
 
 function applyFinalFog(){
-  if(!(fogEnabled&&!globalLight&&me&&!me.isMaster))return;
+  // Névoa desligada: tudo visível.
+  if(!fogEnabled)return;
+
+  // Luz global ligada: revela o mapa inteiro.
+  // A luz global NÃO é necessária para a luz do token funcionar.
+  if(globalLight)return;
+
+  // Mestre enxerga tudo mesmo com névoa.
+  if(me&&me.isMaster)return;
 
   const mePlayer=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid&&!p.isNpc);
 
   ctx.save();
   ctx.setTransform(1,0,0,1,0,0);
   ctx.globalCompositeOperation='source-over';
+
+  // Escuridão total primeiro.
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Só a luz do próprio token do jogador abre a névoa.
+  // Só a luz do próprio token abre a névoa.
   if(mePlayer){
     const lightRadius=tokenLightRadius(mePlayer)*scale;
+
     if(lightRadius>0){
       const sx=offsetX+(mePlayer.x*scale);
       const sy=offsetY+(mePlayer.y*scale);
