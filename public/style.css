@@ -186,3 +186,18 @@
     background:rgba(201,124,61,0.9)!important;
   }
 }
+
+/* fullscreen mobile ajuste */
+html,body{
+  height:100%;
+  overscroll-behavior:none;
+}
+#canvas{
+  touch-action:none;
+}
+#masterToggle{
+  font-weight:900 !important;
+}
+#tDice{
+  font-size:21px !important;
+}
