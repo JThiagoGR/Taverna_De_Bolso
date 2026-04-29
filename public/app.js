@@ -590,6 +590,44 @@ function roll(notation){if(!notation)return;const m=notation.match(/(\d*)d(\d+)(
 socket.on('diceRolled',d=>{const log=document.getElementById('diceLog');const div=document.createElement('div');div.style.marginBottom='4px';div.style.padding='4px';div.style.background='rgba(255,255,255,0.05)';div.style.borderRadius='4px';const rollsStr=d.rolls.join('+');const modStr=d.mod?`${d.mod>0?'+':''}${d.mod}`:'';div.innerHTML=`<strong style="color:#c97c3d">${d.player}</strong>: ${d.notation} = [${rollsStr}]${modStr} = <strong style="color:#fff">${d.total}</strong>`;log.insertBefore(div,log.firstChild);while(log.children.length>10)log.removeChild(log.lastChild);document.getElementById('dice').style.display='block';});
 
 
+
+function drawMapInsideLight(mePlayer, radiusWorld){
+  if(!mePlayer || !mapImg || radiusWorld<=0)return;
+
+  const sx=offsetX+(mePlayer.x*scale);
+  const sy=offsetY+(mePlayer.y*scale);
+  const radiusScreen=radiusWorld*scale;
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.beginPath();
+  ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
+  ctx.clip();
+
+  // Redesenha o mapa por cima da névoa, limitado ao círculo da luz.
+  ctx.setTransform(scale,0,0,scale,offsetX,offsetY);
+  ctx.drawImage(mapImg,0,0);
+
+  // Grid e borda dentro da luz também aparecem.
+  ctx.strokeStyle='rgba(255,255,255,0.08)';
+  ctx.lineWidth=1/scale;
+  const gb=getGridBounds();
+  for(let i=gb.minX;i<=gb.maxX;i+=50){
+    ctx.beginPath();ctx.moveTo(i,gb.minY);ctx.lineTo(i,gb.maxY);ctx.stroke();
+  }
+  for(let i=gb.minY;i<=gb.maxY;i+=50){
+    ctx.beginPath();ctx.moveTo(gb.minX,i);ctx.lineTo(gb.maxX,i);ctx.stroke();
+  }
+  if(mapWidth&&mapHeight){
+    ctx.strokeStyle='rgba(201,124,61,0.45)';
+    ctx.lineWidth=2/scale;
+    ctx.strokeRect(0,0,mapWidth,mapHeight);
+  }
+
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+}
+
 function drawSingleTokenScreen(p){
   if(!p)return;
   ctx.save();
@@ -641,9 +679,8 @@ function drawTokensInsideLight(mePlayer, radiusWorld){
   players.forEach(p=>{
     const d=Math.hypot(p.x-mePlayer.x,p.y-mePlayer.y);
 
-    // Com nuvem ativa:
-    // - próprio token sempre aparece se tiver luz
-    // - NPCs/jogadores só aparecem dentro da luz do jogador
+    // O próprio token sempre aparece com luz.
+    // Outros tokens/NPCs só aparecem se estiverem dentro da luz.
     if(p.id!==mePlayer.id && d>radiusWorld)return;
 
     drawSingleTokenScreen(p);
@@ -656,50 +693,44 @@ function applyFinalFog(){
   if(me&&me.isMaster)return;
 
   const mePlayer=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid&&!p.isNpc);
-  if(!mePlayer){
-    ctx.save();
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.globalCompositeOperation='source-over';
-    ctx.fillStyle='rgba(0,0,0,0.97)';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.restore();
-    ctx.globalCompositeOperation='source-over';
-    return;
-  }
+
+  ctx.save();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(0,0,0,0.97)';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.restore();
+  ctx.globalCompositeOperation='source-over';
+
+  if(!mePlayer)return;
 
   const radiusWorld=tokenLightRadius(mePlayer);
   const radiusScreen=radiusWorld*scale;
   const sx=offsetX+(mePlayer.x*scale);
   const sy=offsetY+(mePlayer.y*scale);
 
+  if(radiusWorld<=0)return;
+
+  // Abre a área de luz na camada escura.
   ctx.save();
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.globalCompositeOperation='source-over';
-
-  // camada escura cobrindo tudo
-  ctx.fillStyle='rgba(0,0,0,0.97)';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  // recorta a luz do token, revelando o mapa já desenhado por baixo
-  if(radiusScreen>0){
-    ctx.globalCompositeOperation='destination-out';
-    const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
-    grad.addColorStop(0,'rgba(0,0,0,1)');
-    grad.addColorStop(0.75,'rgba(0,0,0,1)');
-    grad.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=grad;
-    ctx.beginPath();
-    ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
-    ctx.fill();
-  }
-
+  ctx.globalCompositeOperation='destination-out';
+  const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
+  grad.addColorStop(0,'rgba(0,0,0,1)');
+  grad.addColorStop(0.75,'rgba(0,0,0,1)');
+  grad.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
+  ctx.fill();
   ctx.restore();
   ctx.globalCompositeOperation='source-over';
 
-  // Tokens visíveis dentro da luz são redesenhados por cima da camada escura.
-  if(radiusWorld>0){
-    drawTokensInsideLight(mePlayer, radiusWorld);
-  }
+  // Garante visualmente que o mapa aparece dentro da luz.
+  drawMapInsideLight(mePlayer, radiusWorld);
+
+  // Redesenha o próprio token e NPCs/tokens que estiverem dentro da luz.
+  drawTokensInsideLight(mePlayer, radiusWorld);
 }
 
 function preloadTokenImages(){
@@ -891,3 +922,70 @@ window.roll=function(notation){
 
 if(socket&&socket.off)socket.off('diceRolled');
 socket.on('diceRolled',d=>addDiceLogFixed(d));
+
+
+// ===== MOBILE SHEET TAP FIX =====
+let mobileTapInfo=null;
+
+canvas.addEventListener('touchstart',e=>{
+  if(e.touches.length!==1 || !me)return;
+  const t=e.touches[0];
+  const [x,y]=getPos(t);
+  const hit=(typeof findTokenAt==='function')?findTokenAt(x,y,34):players.find(p=>Math.hypot(p.x-x,p.y-y)<34);
+
+  if(hit && (me.isMaster || (!hit.isNpc && hit.ownerId===me.pid))){
+    mobileTapInfo={id:hit.id,x:t.clientX,y:t.clientY,time:Date.now()};
+  }else{
+    mobileTapInfo=null;
+  }
+},true);
+
+canvas.addEventListener('touchend',e=>{
+  if(!mobileTapInfo)return;
+  const t=e.changedTouches&&e.changedTouches[0];
+  if(!t){mobileTapInfo=null;return;}
+
+  const moved=Math.hypot(t.clientX-mobileTapInfo.x,t.clientY-mobileTapInfo.y);
+  const dt=Date.now()-mobileTapInfo.time;
+  const id=mobileTapInfo.id;
+  mobileTapInfo=null;
+
+  // Toque curto/parado no token abre a ficha no celular.
+  if(moved<12 && dt<450){
+    selectedId=id;
+    openPlayerSheet(id);
+  }
+},true);
+
+
+// ===== MOBILE DOUBLE TAP SHEET =====
+let lastTapTime = 0;
+let lastTapId = null;
+
+canvas.addEventListener('touchend', e => {
+  if(e.changedTouches.length !== 1 || !me) return;
+
+  const t = e.changedTouches[0];
+  const [x,y] = getPos(t);
+
+  const hit = (typeof findTokenAt === 'function')
+    ? findTokenAt(x,y,34)
+    : players.find(p => Math.hypot(p.x-x,p.y-y) < 34);
+
+  if(!hit) return;
+
+  if(!me.isMaster && (hit.isNpc || hit.ownerId !== me.pid)) return;
+
+  const now = Date.now();
+
+  if(lastTapId === hit.id && (now - lastTapTime) < 300){
+    selectedId = hit.id;
+    openPlayerSheet(hit.id);
+    lastTapTime = 0;
+    lastTapId = null;
+    return;
+  }
+
+  lastTapTime = now;
+  lastTapId = hit.id;
+}, true);
