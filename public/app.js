@@ -195,10 +195,9 @@ socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===
   socket.on('zoomUpdated', d => {
   if(me && me.isMaster) return;
 
-  const oldScale = scale;
-  const newScale = d.zoom;
+  const oldScale = scale || 1;
+  const newScale = Math.max(0.5,Math.min(3,Number(d.zoom)||oldScale));
 
-  // centro atual da tela do jogador
   const centerX = (canvas.width / 2 - offsetX) / oldScale;
   const centerY = (canvas.height / 2 - offsetY) / oldScale;
 
@@ -206,6 +205,8 @@ socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===
 
   offsetX = canvas.width / 2 - centerX * scale;
   offsetY = canvas.height / 2 - centerY * scale;
+  camTargetX=offsetX;
+  camTargetY=offsetY;
 
   requestDraw();
 });
@@ -420,6 +421,30 @@ canvas.addEventListener('mouseup',e=>{
   dragging=null;
 });
 
+
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  if(!me||!me.isMaster)return;
+
+  const rect=canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left;
+  const my=e.clientY-rect.top;
+
+  const beforeX=(mx-offsetX)/scale;
+  const beforeY=(my-offsetY)/scale;
+
+  const factor=e.deltaY<0?1.1:0.9;
+  scale=Math.max(0.5,Math.min(3,scale*factor));
+
+  offsetX=mx-beforeX*scale;
+  offsetY=my-beforeY*scale;
+  camTargetX=offsetX;
+  camTargetY=offsetY;
+
+  emitZoomThrottled(true);
+  requestDraw();
+},{passive:false});
+
 canvas.addEventListener('touchstart',e=>{
   e.preventDefault();
 
@@ -619,6 +644,20 @@ function drawSingleTokenScreen(p){
   ctx.restore();
 }
 
+
+function drawTokensInsideLight(mePlayer, radiusWorld){
+  if(!mePlayer || radiusWorld<=0)return;
+
+  players.forEach(p=>{
+    const d=Math.hypot(p.x-mePlayer.x,p.y-mePlayer.y);
+
+    // Com névoa ativa, jogador só vê tokens dentro da própria luz.
+    if(d>radiusWorld)return;
+
+    drawSingleTokenScreen(p);
+  });
+}
+
 function applyFinalFog(){
   if(!fogEnabled)return;
   if(globalLight)return;
@@ -632,14 +671,17 @@ function applyFinalFog(){
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  let sx=0, sy=0, radiusScreen=0;
+  let radiusWorld=0;
+  let radiusScreen=0;
+
   if(mePlayer){
-    const radiusWorld=tokenLightRadius(mePlayer);
+    radiusWorld=tokenLightRadius(mePlayer);
     radiusScreen=radiusWorld*scale;
-    sx=offsetX+(mePlayer.x*scale);
-    sy=offsetY+(mePlayer.y*scale);
 
     if(radiusScreen>0){
+      const sx=offsetX+(mePlayer.x*scale);
+      const sy=offsetY+(mePlayer.y*scale);
+
       ctx.globalCompositeOperation='destination-out';
       const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
       grad.addColorStop(0,'rgba(0,0,0,1)');
@@ -655,10 +697,9 @@ function applyFinalFog(){
   ctx.restore();
   ctx.globalCompositeOperation='source-over';
 
-  // Redesenha o próprio token do jogador por cima da névoa quando ele tem luz,
-  // garantindo que o jogador sempre veja seu personagem.
-  if(mePlayer && radiusScreen>0){
-    drawSingleTokenScreen(mePlayer);
+  // Redesenha somente tokens dentro da luz do jogador.
+  if(mePlayer && radiusWorld>0){
+    drawTokensInsideLight(mePlayer, radiusWorld);
   }
 }
 
