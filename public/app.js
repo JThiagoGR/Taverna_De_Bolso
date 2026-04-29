@@ -1,4 +1,14 @@
 
+function clampTokenToMap(p){
+  if(!mapWidth || !mapHeight) return;
+
+  const margin = 20;
+
+  p.x = Math.max(margin, Math.min(mapWidth - margin, p.x));
+  p.y = Math.max(margin, Math.min(mapHeight - margin, p.y));
+}
+
+
 let camTargetX = 0;
 let camTargetY = 0;
 let followMode = true;
@@ -223,7 +233,7 @@ function tokenLightRadius(p){
   return v<=20?v*50:v*5;
 }
 canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
-canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
+canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;clampTokenToMap(dragging);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
 canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan')emitZoomThrottled(true);if(dragging==='pan')emitZoomThrottled(true);rulerStart=null;dragging=null;});
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -299,7 +309,7 @@ canvas.addEventListener('touchmove',e=>{
     }else if(dragging&&dragging!=='pan'){
       if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
       const [x,y]=getPos(t);
-      if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}
+      if(!blockedMoveLocal(dragging,x,y)){dragging.x=x;dragging.y=y;clampTokenToMap(dragging);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}
     }else if(wallStart&&me?.isMaster){
       const [x,y]=getPos(t);
       requestDraw();
@@ -434,3 +444,62 @@ function loop(){
   requestAnimationFrame(loop);
 }
 loop();
+
+// FIX TOUCH MOBILE
+canvas.addEventListener('touchstart', e=>{
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = (t.clientX - rect.left - offsetX) / scale;
+  const y = (t.clientY - rect.top - offsetY) / scale;
+
+  let hit = null;
+  players.forEach(p=>{
+    if(Math.hypot(p.x - x, p.y - y) < 25){
+      hit = p;
+    }
+  });
+
+  if(hit){
+    dragging = hit;
+  }else{
+    dragging = 'pan';
+    canvas.dataset.px = t.clientX;
+    canvas.dataset.py = t.clientY;
+  }
+});
+
+canvas.addEventListener('touchmove', e=>{
+  const t = e.touches[0];
+
+  if(dragging === 'pan'){
+    const dx = t.clientX - canvas.dataset.px;
+    const dy = t.clientY - canvas.dataset.py;
+
+    offsetX += dx;
+    offsetY += dy;
+
+    canvas.dataset.px = t.clientX;
+    canvas.dataset.py = t.clientY;
+
+    requestDraw();
+    return;
+  }
+
+  if(dragging){
+    const rect = canvas.getBoundingClientRect();
+    const x = (t.clientX - rect.left - offsetX) / scale;
+    const y = (t.clientY - rect.top - offsetY) / scale;
+
+    dragging.x = x;
+    dragging.y = y;
+
+    clampTokenToMap(dragging);
+
+    emitMoveThrottled(dragging);
+    requestDraw();
+  }
+});
+
+canvas.addEventListener('touchend', ()=>{
+  dragging = null;
+});

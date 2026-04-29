@@ -1,3 +1,12 @@
+
+function clampTokenToMapServer(p, map){
+  if(!map) return;
+  const margin = 20;
+
+  p.x = Math.max(margin, Math.min(map.w - margin, p.x));
+  p.y = Math.max(margin, Math.min(map.h - margin, p.y));
+}
+
 const express=require('express');const http=require('http');const {Server}=require('socket.io');const path=require('path');
 const app=express();const server=http.createServer(app);const io=new Server(server,{cors:{origin:'*'},maxHttpBufferSize:10e6});
 app.use(express.static(path.join(__dirname,'public')));
@@ -87,7 +96,7 @@ io.on('connection',s=>{
     if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
   if(collidesWithToken(r,p,nx,ny))return;
-  p.x=nx;p.y=ny;io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
+  p.x=nx;p.y=ny;clampTokenToMapServer(p, r.map);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
  });
 
  s.on('updatePlayer',d=>{
