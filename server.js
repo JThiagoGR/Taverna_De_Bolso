@@ -102,7 +102,7 @@ io.on('connection',s=>{
  s.on('setGlobalLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
  s.on('setZoom',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s)||!d)return;r.zoom=num(d.zoom,1,.5,3);r.offsetX=num(d.offsetX,0,-100000,100000);r.offsetY=num(d.offsetY,0,-100000,100000);io.to(s.room).emit('zoomUpdated',{zoom:r.zoom,offsetX:r.offsetX,offsetY:r.offsetY});});
  s.on('setRuler',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r)return;r.ruler=d.ruler||null;io.to(s.room).emit('rulerUpdated',r.ruler);});
- s.on('roll',d=>{io.to(cleanRoom(d&&d.room)||s.room).emit('rollResult',d);});
+ s.on('roll',d=>{const room=cleanRoom(d&&d.room)||s.room;io.to(room).emit('rollResult',d);if(d&&d.roll)io.to(room).emit('diceRolled',{player:String(d.name||'Jogador'),notation:'1d20',rolls:[d.roll],total:d.roll,mod:0});});
  s.on('rollDice',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!d)return;
   const m=String(d.notation||'1d20').match(/(\d*)d(\d+)([+-]\d+)?/i);if(!m)return;
