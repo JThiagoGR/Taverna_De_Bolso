@@ -1,0 +1,4 @@
+Taverna De Bolso v5.7.1
+Layout: Anterior (clássico)
+Data: 2026-04-29
+Status: Verificado 50/50 testes
