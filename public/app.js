@@ -36,8 +36,22 @@ function centerOnToken(t){
   offsetY=camTargetY;
 }
 
+function updateFollowButton(){
+  const b=document.getElementById('tFollow');
+  if(!b)return;
+  b.textContent=followMode?'🔒':'🔓';
+  b.title=followMode?'Câmera travada no token':'Câmera livre';
+  b.classList.toggle('active',followMode);
+}
 function toggleFollow(){
-  followMode = !followMode;
+  followMode=!followMode;
+  const b=document.getElementById('tFollow');
+  if(b){
+    b.textContent=followMode?'🔒':'🔓';
+    b.title=followMode?'Câmera travada no token':'Câmera livre';
+    b.classList.toggle('active',followMode);
+  }
+  if(followMode)followOwnToken();updateFollowButton();
 }
 
 function clampCamera(){
@@ -55,7 +69,7 @@ function requestDraw(){if(drawPending)return;drawPending=true;requestAnimationFr
 function emitMoveThrottled(token){const now=Date.now();if(now-lastEmitMove<45)return;lastEmitMove=now;socket.emit('move',{room:me.room,id:token.id,x:token.x,y:token.y});}
 function emitZoomThrottled(force=false){if(!me||!me.isMaster)return;const now=Date.now();if(!force&&now-lastEmitZoom<180)return;lastEmitZoom=now;socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});}
 function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;canvas.style.width=window.innerWidth+'px';canvas.style.height=window.innerHeight+'px';ctx.setTransform(1,0,0,1,0,0);if(me&&me.isMaster&&window.sharedRuler)try{socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});}catch(e){}requestDraw();}window.addEventListener('resize',resize);resize();
-function join(isMaster){const nameEl=document.getElementById('name');const roomEl=document.getElementById('room');const tokenEl=document.getElementById('tokenId');me={name:nameEl.value||'Jogador',room:roomEl.value||'mesa1',isMaster:!!isMaster,pid:null};try{enterFullscreen();}catch(e){}socket.emit('join',{room:me.room,name:me.name,isMaster:me.isMaster,tokenId:tokenEl.value.trim()||undefined});document.getElementById('login').style.display='none';document.getElementById('toolbar').style.display='flex';if(me.isMaster){const isMobile=window.innerWidth<768;document.getElementById('master').style.display=isMobile?'none':'block';document.getElementById('masterToggle').style.display=isMobile?'block':'none';}else{document.getElementById('master').style.display='none';document.getElementById('masterToggle').style.display='none';}setTimeout(()=>{if(!me.isMaster){offsetX=window.innerWidth/2-400;offsetY=window.innerHeight/2-300;}requestDraw();if(me.isMaster)emitZoomThrottled(true);},100);}
+function join(isMaster){const nameEl=document.getElementById('name');const roomEl=document.getElementById('room');const tokenEl=document.getElementById('tokenId');me={name:nameEl.value||'Jogador',room:roomEl.value||'mesa1',isMaster:!!isMaster,pid:null};try{enterFullscreen();}catch(e){}socket.emit('join',{room:me.room,name:me.name,isMaster:me.isMaster,tokenId:tokenEl.value.trim()||undefined});document.getElementById('login').style.display='none';document.getElementById('toolbar').style.display='flex';updateFollowButton();if(me.isMaster){const isMobile=window.innerWidth<768;document.getElementById('master').style.display=isMobile?'none':'block';document.getElementById('masterToggle').style.display=isMobile?'block':'none';}else{document.getElementById('master').style.display='none';document.getElementById('masterToggle').style.display='none';}setTimeout(()=>{if(!me.isMaster){offsetX=window.innerWidth/2-400;offsetY=window.innerHeight/2-300;}requestDraw();if(me.isMaster)emitZoomThrottled(true);},100);}
 function enterFullscreen(){
   const el=document.documentElement;
   try{
@@ -231,10 +245,10 @@ socket.on('mapUpdated',data=>{
   };
   mapImg.src=mapData;
 });
-socket.on('fogSet',f=>{fogEnabled=!!f;updateFogLightButtons();draw();});
-socket.on('fogUpdated',f=>{fogEnabled=!!f;updateFogLightButtons();draw();});
-socket.on('lightSet',l=>{globalLight=!!Number(l);updateFogLightButtons();draw();});
-socket.on('lightUpdated',l=>{globalLight=!!Number(l);updateFogLightButtons();draw();});
+socket.on('fogSet',f=>{fogEnabled=!!f;updateFogLightButtons();requestDraw();});
+socket.on('fogUpdated',f=>{fogEnabled=!!f;updateFogLightButtons();requestDraw();});
+socket.on('lightSet',l=>{globalLight=!!Number(l);updateFogLightButtons();requestDraw();});
+socket.on('lightUpdated',l=>{globalLight=!!Number(l);updateFogLightButtons();requestDraw();});
 function setTool(t){tool=t;document.querySelectorAll('#toolbar button').forEach(b=>b.classList.remove('active'));if(t==='move')document.getElementById('tMove').classList.add('active');if(t==='ruler')document.getElementById('tRuler').classList.add('active');if(t==='draw')document.getElementById('tDraw').classList.add('active');if(t==='pan')document.getElementById('tPan').classList.add('active');if(t==='clear')clearWalls();}
 function getPos(e){const r=canvas.getBoundingClientRect();return[(e.clientX-r.left-offsetX)/scale,(e.clientY-r.top-offsetY)/scale];}
 
@@ -258,18 +272,14 @@ function blockedMoveLocal(p,nx,ny){
   });
 }
 function tokenLightRadius(p){
-  // Campo Luz do token:
-  // vazio/sem valor = 6 quadrados
-  // 0 = sem luz
-  // 1-20 = quadrados
-  // >20 = pés aproximados
   const raw=p?p.light:undefined;
   const v=(raw===undefined||raw===null||raw==='')?6:Math.max(0,Number(raw)||0);
   if(v<=0)return 0;
+  // valor 1-20 = quadrados de 50px; acima disso = pés aproximados
   return v<=20?v*50:v*5;
 }
-canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){if(me&&!me.isMaster)followMode=false;dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
-canvas.addEventListener('mousemove',e=>{if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;camTargetX=offsetX;camTargetY=offsetY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
+canvas.addEventListener('mousedown',e=>{const[x,y]=getPos(e);if(tool==='draw'){wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];}else if(tool==='ruler'){dragging=null;rulerStart=[x,y];rulerEnd=[x,y];}else if(tool==='pan'){if(me&&!me.isMaster){followMode=false;updateFollowButton();}dragging='pan';canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;}else{let hit=null,best=999999;players.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y);if(d<24&&d<best){best=d;hit=p;}});if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;if(hit&&tool==='move'){dragging=hit;selectedId=hit.id;tokenPanelHidden=false;tokenPanelOpen=false;syncTokenPanel();}}});
+canvas.addEventListener('mousemove',e=>{if(tool==='ruler'&&rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});requestDraw();return;}if(tool==='pan'&&dragging==='pan'){offsetX+=e.clientX-canvas.dataset.px;offsetY+=e.clientY-canvas.dataset.py;canvas.dataset.px=e.clientX;canvas.dataset.py=e.clientY;camTargetX=offsetX;camTargetY=offsetY;requestDraw();}else if(dragging&&dragging!=='pan'){if(!me.isMaster&&dragging.isNpc){dragging=null;return;}const[x,y]=getPos(e);if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&dragging.ownerId===me.pid)if(!me.isMaster && followMode && dragging.ownerId===me.pid){centerOnToken(dragging);}emitMoveThrottled(dragging);requestDraw();}}else if(wallStart){const[x,y]=getPos(e);draw();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);ctx.strokeStyle='#c97c3d';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(wallStart[0],wallStart[1]);ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);ctx.stroke();ctx.restore();}else if(rulerStart){rulerEnd=getPos(e);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});draw();}});
 canvas.addEventListener('mouseup',e=>{if(wallStart){const[x,y]=getPos(e);const end=[Math.round(x/50)*50,Math.round(y/50)*50];if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});wallStart=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(rulerStart){socket.emit('setRuler',{room:me.room,ruler:null});window.sharedRuler=null;}if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);rulerStart=null;dragging=null;});
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -299,7 +309,7 @@ canvas.addEventListener('touchstart',e=>{
       if(!me?.isMaster)return;
       wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
     }else if(tool==='ruler'){
-      rulerStart=[x,y];rulerEnd=[x,y];
+      dragging=null;rulerStart=[x,y];rulerEnd=[x,y];
       window.sharedRuler={a:rulerStart,b:rulerEnd};
       socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});
     }else if(tool==='pan'){
@@ -336,6 +346,7 @@ canvas.addEventListener('touchmove',e=>{
   }
   if(e.touches.length===1){
     const t=e.touches[0];
+    if(tool==='ruler'&&rulerStart){rulerEnd=getPos(t);window.sharedRuler={a:rulerStart,b:rulerEnd};socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});requestDraw();return;}
     if(tool==='pan'&&dragging==='pan'){
       offsetX+=t.clientX-canvas.dataset.px;
       offsetY+=t.clientY-canvas.dataset.py;
@@ -395,14 +406,8 @@ function roll(notation){if(!notation)return;const m=notation.match(/(\d*)d(\d+)(
 socket.on('diceRolled',d=>{const log=document.getElementById('diceLog');const div=document.createElement('div');div.style.marginBottom='4px';div.style.padding='4px';div.style.background='rgba(255,255,255,0.05)';div.style.borderRadius='4px';const rollsStr=d.rolls.join('+');const modStr=d.mod?`${d.mod>0?'+':''}${d.mod}`:'';div.innerHTML=`<strong style="color:#c97c3d">${d.player}</strong>: ${d.notation} = [${rollsStr}]${modStr} = <strong style="color:#fff">${d.total}</strong>`;log.insertBefore(div,log.firstChild);while(log.children.length>10)log.removeChild(log.lastChild);document.getElementById('dice').style.display='block';});
 
 function applyFinalFog(){
-  // Névoa desligada: tudo visível.
   if(!fogEnabled)return;
-
-  // Luz global ligada: revela o mapa inteiro.
-  // A luz global NÃO é necessária para a luz do token funcionar.
   if(globalLight)return;
-
-  // Mestre enxerga tudo mesmo com névoa.
   if(me&&me.isMaster)return;
 
   const mePlayer=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid&&!p.isNpc);
@@ -410,32 +415,31 @@ function applyFinalFog(){
   ctx.save();
   ctx.setTransform(1,0,0,1,0,0);
   ctx.globalCompositeOperation='source-over';
-
-  // Escuridão total primeiro.
   ctx.fillStyle='rgba(0,0,0,0.97)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Só a luz do próprio token abre a névoa.
   if(mePlayer){
-    const lightRadius=tokenLightRadius(mePlayer)*scale;
+    const radiusWorld=tokenLightRadius(mePlayer);
+    const radiusScreen=radiusWorld*scale;
 
-    if(lightRadius>0){
+    if(radiusScreen>0){
       const sx=offsetX+(mePlayer.x*scale);
       const sy=offsetY+(mePlayer.y*scale);
 
       ctx.globalCompositeOperation='destination-out';
-      const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,lightRadius);
+      const grad=ctx.createRadialGradient(sx,sy,0,sx,sy,radiusScreen);
       grad.addColorStop(0,'rgba(0,0,0,1)');
       grad.addColorStop(0.72,'rgba(0,0,0,0.95)');
       grad.addColorStop(1,'rgba(0,0,0,0)');
       ctx.fillStyle=grad;
       ctx.beginPath();
-      ctx.arc(sx,sy,lightRadius,0,Math.PI*2);
+      ctx.arc(sx,sy,radiusScreen,0,Math.PI*2);
       ctx.fill();
     }
   }
 
   ctx.restore();
+  ctx.globalCompositeOperation='source-over';
 }
 
 function preloadTokenImages(){
@@ -493,8 +497,8 @@ function loadMap(){
   };
   img.src=src;
 }
-function toggleFog(){fogEnabled=!fogEnabled;socket.emit('setFog',{room:me.room,fog:fogEnabled});updateFogLightButtons();draw();}
-function toggleLight(){globalLight=!globalLight;socket.emit('setLight',{room:me.room,light:globalLight?1:0});updateFogLightButtons();draw();}
+function toggleFog(){fogEnabled=!fogEnabled;socket.emit('setFog',{room:me.room,fog:fogEnabled});updateFogLightButtons();requestDraw();}
+function toggleLight(){globalLight=!globalLight;socket.emit('setLight',{room:me.room,light:globalLight?1:0});updateFogLightButtons();requestDraw();}
 function setTokenImg(){const p=currentEditableToken();if(!p)return alert('Selecione um token primeiro.');const url=(document.getElementById('tokenUrl')?.value||'').trim();if(url){applyTokenImageToPlayer(p,url);return;}const f=document.getElementById('tokenFile')?.files?.[0];if(!f)return alert('Escolha uma imagem ou cole uma URL.');const r=new FileReader();r.onload=ev=>applyTokenImageToPlayer(p,ev.target.result);r.readAsDataURL(f);}
 function saveSheet(){if(!editingPlayer)return;socket.emit('updatePlayer',{room:me.room,id:editingPlayer.id,name:document.getElementById('sName').value,hp:Number(document.getElementById('sHp').value),maxHp:Number(document.getElementById('sMax').value),ca:Number(document.getElementById('sCa').value),light:Number(document.getElementById('sLight').value)});closeSheet();}
 function delToken(){if(editingPlayer){socket.emit('removePlayer',{room:me.room,id:editingPlayer.id});closeSheet();}}
