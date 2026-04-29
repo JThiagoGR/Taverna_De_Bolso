@@ -10,35 +10,65 @@ function canControl(s,p){return !!p&&(isMaster(s)||p.ownerId===s.pid);}
 function num(v,f,min,max){const n=Number(v);return Number.isFinite(n)?Math.max(min,Math.min(max,n)):f;}
 function makeId(n,r){return String(n||'p').replace(/[^\w\-]/g,'').slice(0,20)+'_'+cleanRoom(r)+'_'+Math.random().toString(36).substr(2,4);}
 function lineIntersect(x1,y1,x2,y2,x3,y3,x4,y4){const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);if(!d)return false;const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;const u=-((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/d;return t>=0&&t<=1&&u>=0&&u<=1;}
+
+function distPointToSeg(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1;
+  if(dx===0&&dy===0)return Math.hypot(px-x1,py-y1);
+  let t=((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy);
+  t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(x1+t*dx),py-(y1+t*dy));
+}
+function blockedByWallWithRadius(x,y,w,radius){
+  return distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1])<radius;
+}
+function tokenRadius(p){return 14;}
+function collidesWithToken(room,p,x,y){
+  const r=tokenRadius(p);
+  return room.players.some(o=>{
+    if(!o||o.id===p.id)return false;
+    const rr=r+tokenRadius(o);
+    return Math.hypot(o.x-x,o.y-y)<rr;
+  });
+}
 function sanitizeWall(w){if(!Array.isArray(w)||w.length!==2)return null;const a=w[0],b=w[1];if(!Array.isArray(a)||!Array.isArray(b))return null;return [[Math.round(Number(a[0])||0),Math.round(Number(a[1])||0)],[Math.round(Number(b[0])||0),Math.round(Number(b[1])||0)]];}
 
 io.on('connection',s=>{
  s.on('join',d=>{
   if(!d||!d.room)return;
   const roomName=cleanRoom(d.room),r=makeRoom(roomName);
-  s.room=roomName;s.isMaster=!!d.isMaster;s.pid=s.isMaster?'master_'+roomName:(d.tokenId?String(d.tokenId).slice(0,60):makeId(d.name,roomName));
+  s.room=roomName;
+  s.isMaster=!!d.isMaster;
+  s.pid=s.isMaster?'master_'+roomName:(d.tokenId?String(d.tokenId).slice(0,60):makeId(d.name,roomName));
   s.join(roomName);
 
-  let p=r.players.find(x=>x.id===s.pid);
-  if(!p){
-    p={
-      id:s.pid,
-      name:String(d.name||(s.isMaster?'Mestre':'Jogador')).slice(0,40),
-      x:s.isMaster?300:400,
-      y:s.isMaster?260:300,
-      hp:s.isMaster?20:10,
-      maxHp:s.isMaster?20:10,
-      ca:s.isMaster?15:10,
-      light:s.isMaster?60:30,
-      ownerId:s.pid,
-      isNpc:false,
-      isMaster:s.isMaster,
-      img:''
-    };
-    r.players.push(p);
-  }else{
-    p.name=String(d.name||p.name||(s.isMaster?'Mestre':'Jogador')).slice(0,40);
-    p.isMaster=s.isMaster;
+  // Mestre NÃO cria token automático.
+  // Também remove qualquer token antigo de Mestre que tenha ficado na sala.
+  r.players=r.players.filter(p=>p.isNpc||!(p.isMaster===true||String(p.id||'').startsWith('master_')||String(p.ownerId||'').startsWith('master_')));
+
+  // Só jogador cria token automático ao entrar.
+  if(!s.isMaster){
+    let p=r.players.find(x=>x.id===s.pid);
+    if(!p){
+      p={
+        id:s.pid,
+        name:String(d.name||'Jogador').slice(0,40),
+        x:400,
+        y:300,
+        hp:10,
+        maxHp:10,
+        ca:10,
+        light:6,
+        ownerId:s.pid,
+        isNpc:false,
+        isMaster:false,
+        img:''
+      };
+      r.players.push(p);
+    }else{
+      p.name=String(d.name||p.name||'Jogador').slice(0,40);
+      p.isMaster=false;
+      if(p.light===undefined||p.light===null||p.light==='')p.light=6;
+    }
   }
 
   s.emit('joined',{pid:s.pid,isMaster:s.isMaster});
@@ -51,7 +81,12 @@ io.on('connection',s=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!d)return;
   const p=r.players.find(x=>x.id===d.id);if(!p||!canControl(s,p))return;
   const nx=Number(d.x),ny=Number(d.y);if(!Number.isFinite(nx)||!Number.isFinite(ny))return;
-  for(const w of r.walls){if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;}
+  const radius=tokenRadius(p);
+  for(const w of r.walls){
+    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
+    if(blockedByWallWithRadius(nx,ny,w,radius))return;
+  }
+  if(collidesWithToken(r,p,nx,ny))return;
   p.x=nx;p.y=ny;io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:nx,y:ny});
  });
 
@@ -71,7 +106,7 @@ io.on('connection',s=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
   const c=r.players.filter(p=>p.isNpc).length,hp=Math.max(1,parseInt(d&&d.hp)||10),maxHp=Math.max(1,parseInt(d&&d.maxHp)||hp),ca=Math.max(1,parseInt(d&&d.ca)||10);
   const npc={id:'npc_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),name:String((d&&d.name)||'NPC').slice(0,35)+' '+(c+1),x:400+(c%5)*60,y:300+Math.floor(c/5)*60,hp,maxHp,ca,light:0,ownerId:s.pid,isNpc:true,img:''};
-  r.players.push(npc);io.to(s.room).emit('playerAdded',npc);io.to(s.room).emit('state',r);
+  r.players.push(npc);io.to(s.room).emit('playerAdded',npc);io.to(s.room).emit('npcAdded',npc);io.to(s.room).emit('state',r);
  });
 
  s.on('updateNpc',d=>{
@@ -100,7 +135,7 @@ io.on('connection',s=>{
  s.on('setFog',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.fog=!!d.fog;io.to(s.room).emit('fogUpdated',r.fog);io.to(s.room).emit('fogSet',r.fog);});
  s.on('setLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
  s.on('setGlobalLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
- s.on('setZoom',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s)||!d)return;r.zoom=num(d.zoom,1,.5,3);r.offsetX=num(d.offsetX,0,-100000,100000);r.offsetY=num(d.offsetY,0,-100000,100000);io.to(s.room).emit('zoomUpdated',{zoom:r.zoom,offsetX:r.offsetX,offsetY:r.offsetY});});
+ s.on('setZoom',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s)||!d)return;r.zoom=num(d.zoom,1,.5,3);r.offsetX=num(d.offsetX,0,-100000,100000);r.offsetY=num(d.offsetY,0,-100000,100000);s.to(s.room).emit('zoomUpdated',{zoom:r.zoom,offsetX:r.offsetX,offsetY:r.offsetY});});
  s.on('setRuler',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r)return;r.ruler=d.ruler||null;io.to(s.room).emit('rulerUpdated',r.ruler);});
  s.on('roll',d=>{const room=cleanRoom(d&&d.room)||s.room;io.to(room).emit('rollResult',d);if(d&&d.roll)io.to(room).emit('diceRolled',{player:String(d.name||'Jogador'),notation:'1d20',rolls:[d.roll],total:d.roll,mod:0});});
  s.on('rollDice',d=>{
