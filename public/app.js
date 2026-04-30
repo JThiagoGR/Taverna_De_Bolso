@@ -61,8 +61,8 @@ let mapWidth=0,mapHeight=0;
 function requestDraw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;draw();});}
 
 // ===== SINCRONIA ULTRA SUAVE =====
-const NET_MOVE_INTERVAL = 60;
-const NET_MOVE_MIN_DIST = 1.5;
+const NET_MOVE_INTERVAL = 45;
+const NET_MOVE_MIN_DIST = 1;
 const REMOTE_SMOOTH_SPEED = 14; // maior = mais rápido, sem teleportar visualmente
 const REMOTE_SNAP_DIST = 900;   // se estiver MUITO longe, corrige para evitar atravessar mapa inteiro
 const remoteTargets = {};
@@ -134,6 +134,13 @@ function emitMoveThrottled(p){
   if(!shouldSendMoveNet(p))return;
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
 }
+
+function emitMoveNow(p){
+  if(!p||!me)return;
+  lastNetMoveById[p.id]={t:Date.now(),x:p.x,y:p.y};
+  socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
+}
+
 function emitZoomThrottled(force=false){if(!me||!me.isMaster)return;const now=Date.now();if(!force&&now-lastEmitZoom<180)return;lastEmitZoom=now;socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});}
 function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;canvas.style.width=window.innerWidth+'px';canvas.style.height=window.innerHeight+'px';ctx.setTransform(1,0,0,1,0,0);if(me&&me.isMaster&&window.sharedRuler)try{socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});}catch(e){}requestDraw();}window.addEventListener('resize',resize);resize();
 
@@ -634,6 +641,8 @@ canvas.addEventListener('mouseup',e=>{
     wallStart=null;freeDrawPoints=null;circleStart=null;
   }
 
+  if(dragging&&dragging!=='pan')emitMoveNow(dragging);
+  if(dragging&&dragging!=='pan')emitMoveNow(dragging);
   if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
   dragging=null;
 });
