@@ -48,7 +48,7 @@ function clampCamera(){
 const socket=io();const canvas=document.getElementById('canvas');const ctx=canvas.getContext('2d');
 let lastPinchDist=0,lastPinchScale=1;
 let drawMode='line', freeDrawPoints=null, circleStart=null;
-let me=null,players=[],walls=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=false,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
+let me=null,players=[],walls=[],doors=[],dragging=null,offsetX=0,offsetY=0,scale=1,tool='move',editingPlayer=null,tokenImages={},fogEnabled=false,mapImg=null,mapData=null,wallStart=null,rulerStart=null,rulerEnd=null,selectedId=null,globalLight=0,lastTap=0,lastX=0,lastY=0;let tokenPanelHidden=false;let tokenPanelOpen=false;
 let drawPending=false,lastEmitMove=0,lastEmitZoom=0;
 let mapWidth=0,mapHeight=0;
 function requestDraw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;draw();});}
@@ -214,7 +214,7 @@ function updateFogLightButtons(){
 socket.on('connect',()=>console.log('Conectado'));
 socket.on('masterError',d=>alert(d?.msg||'Erro de Mestre'));
 socket.on('joined',d=>{me.pid=d.pid;syncTokenPanel();applyRoleToolbar();});
-socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===true||String(p.id||'').startsWith('master_')||String(p.ownerId||'').startsWith('master_')));if(me&&!me.isMaster&&!selectedId){const own=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid);if(own)selectedId=own.id;}walls=s.walls||[];fogEnabled=!!s.fog;globalLight=!!Number(s.globalLight||0);preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=()=>{mapWidth=mapImg.naturalWidth||mapImg.width||0;mapHeight=mapImg.naturalHeight||mapImg.height||0;requestDraw();};mapImg.src=mapData;}else if(!s.mapData&&mapData){clearLocalMap();}updateFogLightButtons();requestDraw();updatePlayerList();focusOwnTokenOnce();applyRoleToolbar();});
+socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===true||String(p.id||'').startsWith('master_')||String(p.ownerId||'').startsWith('master_')));if(me&&!me.isMaster&&!selectedId){const own=players.find(p=>p.ownerId===me.pid&&!p.isNpc)||players.find(p=>p.id===me.pid);if(own)selectedId=own.id;}walls=s.walls||[];doors=s.doors||[];fogEnabled=!!s.fog;globalLight=!!Number(s.globalLight||0);preloadTokenImages();syncTokenPanel();if(s.mapData&&s.mapData!==mapData){mapData=s.mapData;mapImg=new Image();mapImg.onload=()=>{mapWidth=mapImg.naturalWidth||mapImg.width||0;mapHeight=mapImg.naturalHeight||mapImg.height||0;requestDraw();};mapImg.src=mapData;}else if(!s.mapData&&mapData){clearLocalMap();}updateFogLightButtons();requestDraw();updatePlayerList();focusOwnTokenOnce();applyRoleToolbar();});
   socket.on('zoomUpdated', d => {
   if(me && me.isMaster) return;
 
@@ -240,6 +240,13 @@ socket.on('npcAdded',p=>updateOrAddPlayer(p));
   socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i]={...players[i],...p};}else players.push(p);if(p.id===selectedId)syncTokenPanel();requestDraw();});
 socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;if(p.id===selectedId)syncTokenPanel();requestDraw();}});
 socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
+
+socket.on('doorAdded',d=>{doors.push(d);requestDraw();});
+socket.on('doorsAdded',ds=>{if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
+socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0)doors[i]=d;requestDraw();});
+socket.on('doorRemoved',()=>{doors.pop();requestDraw();});
+socket.on('doorsCleared',()=>{doors=[];requestDraw();});
+
 socket.on('wallAdded',w=>{walls.push(w);draw();});
 socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
 socket.on('wallsCleared',()=>{walls=[];draw();});
@@ -280,7 +287,7 @@ socket.on('lightSet',l=>{globalLight=!!Number(l);updateFogLightButtons();request
 socket.on('lightUpdated',l=>{globalLight=!!Number(l);updateFogLightButtons();requestDraw();});
 
 function cycleDrawTool(){
-  const modes=['line','free','circle'];
+  const modes=['line','free','circle','door'];
   const i=modes.indexOf(drawMode);
   drawMode=modes[(i+1)%modes.length];
   setTool('draw');
@@ -292,7 +299,7 @@ function updateDrawButton(){
   if(!b)return;
   if(drawMode==='line'){b.textContent='✏️';b.title='Desenho: Parede reta';}
   if(drawMode==='free'){b.textContent='〰️';b.title='Desenho: Traço livre';}
-  if(drawMode==='circle'){b.textContent='⭕';b.title='Desenho: Círculo';}
+  if(drawMode==='circle'){b.textContent='⭕';b.title='Desenho: Círculo';} if(drawMode==='door'){b.textContent='🚪';b.title='Desenho: Porta';}
 }
 
 function previewDrawShape(x,y){
@@ -300,11 +307,11 @@ function previewDrawShape(x,y){
   ctx.save();
   ctx.translate(offsetX,offsetY);
   ctx.scale(scale,scale);
-  ctx.strokeStyle='#c97c3d';
-  ctx.lineWidth=2/scale;
+  ctx.strokeStyle=drawMode==='door'?'#ffd23c':'#c97c3d';
+  ctx.lineWidth=drawMode==='door'?4/scale:2/scale;
   ctx.setLineDash([6/scale,4/scale]);
 
-  if(drawMode==='line'&&wallStart){
+  if((drawMode==='line'||drawMode==='door')&&wallStart){
     ctx.beginPath();
     ctx.moveTo(wallStart[0],wallStart[1]);
     ctx.lineTo(Math.round(x/50)*50,Math.round(y/50)*50);
@@ -426,7 +433,7 @@ canvas.addEventListener('mousedown',e=>{
 
   if(tool==='draw'){
     if(!me?.isMaster)return;
-    if(drawMode==='line')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='line'||drawMode==='door')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
     if(drawMode==='free')freeDrawPoints=[[x,y]];
     if(drawMode==='circle')circleStart=[x,y];
     dragging=null;
@@ -441,7 +448,7 @@ canvas.addEventListener('mousedown',e=>{
     return;
   }
 
-  const hit=findTokenAt(x,y,26);
+  const doorHit=(me&&me.isMaster&&tool==='move')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,26);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -497,7 +504,7 @@ canvas.addEventListener('mouseup',e=>{
   }
 
   if(tool==='draw'&&me?.isMaster){
-    if(drawMode==='line'&&wallStart){
+    if((drawMode==='line'||drawMode==='door')&&wallStart){
       const end=[Math.round(x/50)*50,Math.round(y/50)*50];
       if(wallStart[0]!==end[0]||wallStart[1]!==end[1])socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
     }
@@ -567,7 +574,7 @@ canvas.addEventListener('touchstart',e=>{
 
   if(tool==='draw'){
     if(!me?.isMaster)return;
-    if(drawMode==='line')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(drawMode==='line'||drawMode==='door')wallStart=[Math.round(x/50)*50,Math.round(y/50)*50];
     if(drawMode==='free')freeDrawPoints=[[x,y]];
     if(drawMode==='circle')circleStart=[x,y];
     dragging=null;
@@ -582,7 +589,7 @@ canvas.addEventListener('touchstart',e=>{
     return;
   }
 
-  const hit=findTokenAt(x,y,30);
+  const doorHit=(me&&me.isMaster&&tool==='move')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,30);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -853,6 +860,46 @@ function getGridBounds(){
 }
 
 
+
+function drawDoorsForMaster(){
+  if(!me||!me.isMaster)return;
+  ctx.save();
+  ctx.translate(offsetX,offsetY);
+  ctx.scale(scale,scale);
+  (doors||[]).forEach(d=>{
+    if(!d||!d.wall)return;
+    const w=d.wall;
+    ctx.save();
+    ctx.strokeStyle=d.open?'rgba(60,220,120,0.95)':'rgba(255,210,60,0.95)';
+    ctx.lineWidth=5/scale;
+    ctx.setLineDash(d.open?[10/scale,8/scale]:[]);
+    ctx.beginPath();
+    ctx.moveTo(w[0][0],w[0][1]);
+    ctx.lineTo(w[1][0],w[1][1]);
+    ctx.stroke();
+    const mx=(w[0][0]+w[1][0])/2,my=(w[0][1]+w[1][1])/2;
+    ctx.fillStyle='#fff';
+    ctx.font=`${14/scale}px sans-serif`;
+    ctx.textAlign='center';
+    ctx.shadowColor='#000';
+    ctx.shadowBlur=4/scale;
+    ctx.fillText(d.open?'porta aberta':'porta fechada',mx,my-8/scale);
+    ctx.restore();
+  });
+  ctx.restore();
+}
+function findDoorAt(x,y){
+  if(!me||!me.isMaster)return null;
+  let best=null,bestD=999999;
+  (doors||[]).forEach(d=>{
+    if(!d||!d.wall)return;
+    const w=d.wall;
+    const dd=distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
+    if(dd<18&&dd<bestD){best=d;bestD=dd;}
+  });
+  return best;
+}
+
 function drawPlayerVisionForMaster(){
   if(!me || !me.isMaster) return;
 
@@ -909,7 +956,7 @@ if(mapImg&&mapWidth&&mapHeight){
   ctx.strokeRect(0,0,mapWidth,mapHeight);
   ctx.strokeStyle='rgba(255,255,255,0.06)';
   ctx.lineWidth=1/scale;
-}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;if(me&&me.isMaster){walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});}ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;if(!p.isNpc || (me&&me.isMaster)){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);}if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});ctx.restore();drawPlayerVisionForMaster();applyFinalFog();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
+}ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='rgba(201,124,61,0.5)';ctx.shadowBlur=8/scale;if(me&&me.isMaster){walls.forEach(w=>{ctx.beginPath();ctx.moveTo(w[0][0],w[0][1]);ctx.lineTo(w[1][0],w[1][1]);ctx.stroke();});}ctx.shadowBlur=0;players.forEach(p=>{if(p.img && !tokenImages[p.id]){const im=new Image();im.onload=()=>{tokenImages[p.id]=im;requestDraw();};im.src=p.img;}const img=tokenImages[p.id];ctx.save();const tokenR=tokenRadius(p);if(img){ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.clip();ctx.drawImage(img,p.x-tokenR,p.y-tokenR,tokenR*2,tokenR*2);ctx.restore();ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,tokenR,0,7);ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=2/scale;ctx.stroke();}else{ctx.fillStyle=p.isNpc?'#a33':'#3a6';ctx.shadowColor=p.isNpc?'#a33':'#3a6';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,tokenR*0.9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=2/scale;ctx.stroke();}ctx.fillStyle='#fff';ctx.font=`${12/scale}px sans-serif`;ctx.textAlign='center';ctx.shadowColor='#000';ctx.shadowBlur=4/scale;ctx.fillText(p.name,p.x,p.y-26/scale);ctx.shadowBlur=0;if(!p.isNpc || (me&&me.isMaster)){ctx.fillStyle='rgba(0,0,0,0.7)';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale,5/scale);ctx.fillStyle=p.hp>p.maxHp*0.5?'#4ade80':p.hp>p.maxHp*0.25?'#facc15':'#f87171';ctx.fillRect(p.x-18/scale,p.y+20/scale,36/scale*Math.max(0,p.hp/p.maxHp),5/scale);}if(p.id===selectedId){ctx.strokeStyle='#c97c3d';ctx.lineWidth=3/scale;ctx.shadowColor='#c97c3d';ctx.shadowBlur=12/scale;ctx.beginPath();ctx.arc(p.x,p.y,24/scale,0,7);ctx.stroke();}ctx.restore();});ctx.restore();drawDoorsForMaster();drawPlayerVisionForMaster();applyFinalFog();ctx.save();ctx.translate(offsetX,offsetY);ctx.scale(scale,scale);const rr=(rulerStart&&rulerEnd)?{a:rulerStart,b:rulerEnd}:window.sharedRuler;if(rr&&rr.a&&rr.b){ctx.strokeStyle='#0ff';ctx.lineWidth=2/scale;ctx.beginPath();ctx.moveTo(rr.a[0],rr.a[1]);ctx.lineTo(rr.b[0],rr.b[1]);ctx.stroke();const dist=Math.hypot(rr.b[0]-rr.a[0],rr.b[1]-rr.a[1]);ctx.fillStyle='#0ff';ctx.font=`${14/scale}px sans-serif`;ctx.fillText(Math.round(dist/10)+' ft',(rr.a[0]+rr.b[0])/2,(rr.a[1]+rr.b[1])/2);}ctx.restore();}
 function addNpc(){if(!me||!me.isMaster){alert('Entre como Mestre para criar NPC');return;}socket.emit('addNpc',{room:me.room,name:document.getElementById('npcName').value||'NPC',hp:Number(document.getElementById('npcHp').value)||10,maxHp:Number(document.getElementById('npcHp').value)||Number(document.getElementById('npcHp').value)||10,ca:Number(document.getElementById('npcCa').value)||10});}
 
 function clearLocalMap(){
@@ -935,7 +982,7 @@ function loadMap(){
     mapHeight=img.naturalHeight||img.height||0;
     requestDraw();
     const mf=document.getElementById('mapFile');if(mf)mf.value='';
-    socket.emit('setMap',{room:me.room,mapData:src,mapW:mapWidth,mapH:mapHeight});
+    walls=[];doors=[];socket.emit('replaceWalls',{room:me.room,walls:[]});socket.emit('replaceDoors',{room:me.room,doors:[]});socket.emit('setMap',{room:me.room,mapData:src,mapW:mapWidth,mapH:mapHeight});
   };
   img.onerror=()=>{
     socket.emit('setMap',{room:me.room,mapData:src,mapW:0,mapH:0});
@@ -973,7 +1020,7 @@ document.getElementById('mapFile')?.addEventListener('change',e=>{
       mapWidth=mapImg.naturalWidth||mapImg.width||0;
       mapHeight=mapImg.naturalHeight||mapImg.height||0;
       requestDraw();
-      socket.emit('setMap',{room:me.room,mapData:data,mapW:mapWidth,mapH:mapHeight});
+      walls=[];doors=[];socket.emit('replaceWalls',{room:me.room,walls:[]});socket.emit('replaceDoors',{room:me.room,doors:[]});socket.emit('setMap',{room:me.room,mapData:data,mapW:mapWidth,mapH:mapHeight});
       e.target.value='';
     };
     mapImg.src=data;
@@ -1162,6 +1209,7 @@ function exportFullMap(){
     savedAt:new Date().toISOString(),
     map:{data:mapData||null,w:mapWidth||0,h:mapHeight||0},
     walls:Array.isArray(walls)?walls:[],
+    doors:Array.isArray(doors)?doors:[],
     npcs:players.filter(p=>p.isNpc).map(p=>({
       id:p.id,name:p.name,x:p.x,y:p.y,hp:p.hp,maxHp:p.maxHp,ca:p.ca,
       light:p.light||0,ownerId:p.ownerId||'master',isNpc:true,img:p.img||''
@@ -1183,7 +1231,9 @@ function applyImportedScene(data){
   if(!data||typeof data!=='object')throw new Error('Arquivo inválido');
   const m=data.map||{};
   mapData=m.data||null; mapWidth=Number(m.w)||0; mapHeight=Number(m.h)||0;
+  // Ao importar outro mapa/cena, apaga as paredes anteriores e usa apenas as paredes do arquivo.
   walls=Array.isArray(data.walls)?data.walls:[];
+  doors=Array.isArray(data.doors)?data.doors:[];
   const npcs=Array.isArray(data.npcs)?data.npcs:[];
   players=players.filter(p=>!p.isNpc);
   npcs.forEach(n=>players.push({
@@ -1198,6 +1248,7 @@ function applyImportedScene(data){
   else{mapImg=null;mapWidth=0;mapHeight=0;}
   socket.emit('setMap',{room:me.room,mapData:mapData||'',mapW:mapWidth,mapH:mapHeight});
   socket.emit('replaceWalls',{room:me.room,walls});
+  socket.emit('replaceDoors',{room:me.room,doors});
   socket.emit('replaceNpcs',{room:me.room,npcs});
   updatePlayerList();requestDraw();
 }

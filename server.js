@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname,'public')));
 const rooms={};
 
 function cleanRoom(room){return String(room||'mesa1').trim().replace(/[^\w\- ]/g,'').slice(0,50)||'mesa1';}
-function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};return rooms[id];}
+function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],doors:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};return rooms[id];}
 function isMaster(s){return !!(s.isMaster||(typeof s.pid==='string'&&s.pid.startsWith('master_')));}
 function canControl(s,p){return !!p&&(isMaster(s)||p.ownerId===s.pid);}
 function num(v,f,min,max){const n=Number(v);return Number.isFinite(n)?Math.max(min,Math.min(max,n)):f;}
@@ -74,6 +74,15 @@ function findFreeSpawn(room, preferredX, preferredY, isNpc=false){
 
 function sanitizeWall(w){if(!Array.isArray(w)||w.length!==2)return null;const a=w[0],b=w[1];if(!Array.isArray(a)||!Array.isArray(b))return null;return [[Math.round(Number(a[0])||0),Math.round(Number(a[1])||0)],[Math.round(Number(b[0])||0),Math.round(Number(b[1])||0)]];}
 
+
+function sanitizeDoor(d){
+  if(!d || !Array.isArray(d.wall))return null;
+  const w=sanitizeWall(d.wall);
+  if(!w)return null;
+  return {id:String(d.id||('door_'+Date.now()+'_'+Math.random().toString(36).slice(2,6))).slice(0,80),wall:w,open:!!d.open};
+}
+function doorBlocksMove(d){return d && !d.open && Array.isArray(d.wall);}
+
 io.on('connection',s=>{
  s.on('join',d=>{
   if(!d||!d.room)return;
@@ -126,6 +135,12 @@ io.on('connection',s=>{
   const nx=Number(d.x),ny=Number(d.y);if(!Number.isFinite(nx)||!Number.isFinite(ny))return;
   const radius=tokenRadius(p);
   for(const w of r.walls){
+    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
+    if(blockedByWallWithRadius(nx,ny,w,radius))return;
+  }
+  for(const door of (r.doors||[])){
+    if(!doorBlocksMove(door))continue;
+    const w=door.wall;
     if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
     if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
@@ -185,6 +200,39 @@ io.on('connection',s=>{
  });
  s.on('replaceWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];const arr=Array.isArray(d.walls)?d.walls:[];for(const raw of arr.slice(0,1200)){const w=sanitizeWall(raw);if(w)r.walls.push(w);}io.to(s.room).emit('wallsCleared');if(r.walls.length)io.to(s.room).emit('wallsAdded',r.walls);io.to(s.room).emit('state',r);});
  s.on('replaceNpcs',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.players=r.players.filter(p=>!p.isNpc);const arr=Array.isArray(d.npcs)?d.npcs:[];for(const n of arr.slice(0,200)){r.players.push({id:String(n.id||('npc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6))).slice(0,80),name:String(n.name||'NPC').slice(0,40),x:num(n.x,400,-100000,100000),y:num(n.y,300,-100000,100000),hp:num(n.hp,10,0,9999),maxHp:num(n.maxHp,10,1,9999),ca:num(n.ca,10,1,99),light:num(n.light,0,0,500),ownerId:String(n.ownerId||s.pid||'master').slice(0,80),isNpc:true,img:String(n.img||'').slice(0,2000000)});}io.to(s.room).emit('state',r);});
+ s.on('addDoor',d=>{
+  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
+  const door=sanitizeDoor(d.door);if(!door)return;
+  r.doors=r.doors||[];
+  r.doors.push(door);
+  if(r.doors.length>500)r.doors=r.doors.slice(-500);
+  io.to(s.room).emit('doorAdded',door);
+ });
+ s.on('toggleDoor',d=>{
+  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
+  r.doors=r.doors||[];
+  const door=r.doors.find(x=>x.id===d.id);
+  if(!door)return;
+  door.open=!door.open;
+  io.to(s.room).emit('doorUpdated',door);
+ });
+ s.on('undoDoor',d=>{
+  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
+  r.doors=r.doors||[];
+  if(r.doors.length){r.doors.pop();io.to(s.room).emit('doorRemoved');}
+ });
+ s.on('replaceDoors',d=>{
+  const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
+  r.doors=[];
+  const arr=Array.isArray(d.doors)?d.doors:[];
+  for(const raw of arr.slice(0,500)){
+    const door=sanitizeDoor(raw);
+    if(door)r.doors.push(door);
+  }
+  io.to(s.room).emit('doorsCleared');
+  if(r.doors.length)io.to(s.room).emit('doorsAdded',r.doors);
+  io.to(s.room).emit('state',r);
+ });
  s.on('undoWall',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];
   if(!r||!isMaster(s))return;
@@ -193,10 +241,10 @@ io.on('connection',s=>{
     io.to(s.room).emit('wallRemoved');
   }
  });
- s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];io.to(s.room).emit('wallsCleared');});
- s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.mapW=0;r.mapH=0;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('mapCleared');io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('state',r);});
+ s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.doors=[];io.to(s.room).emit('wallsCleared');io.to(s.room).emit('doorsCleared');});
+ s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.doors=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.mapW=0;r.mapH=0;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('mapCleared');io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('state',r);});
  s.on('clearMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.mapData=null;r.mapW=0;r.mapH=0;io.to(s.room).emit('mapCleared');io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('state',r);});
- s.on('setMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;const src=String(d.mapData||'').slice(0,9000000);if(!src){r.mapData=null;r.mapW=0;r.mapH=0;io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('mapSet',{src:null,w:0,h:0});return;}r.mapData=src;r.mapW=Math.max(0,Number(d.mapW)||0);r.mapH=Math.max(0,Number(d.mapH)||0);io.to(s.room).emit('mapUpdated',{src:r.mapData,w:r.mapW,h:r.mapH});io.to(s.room).emit('mapSet',{src:r.mapData,w:r.mapW,h:r.mapH});});
+ s.on('setMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;const src=String(d.mapData||'').slice(0,9000000);if(!src){r.mapData=null;r.mapW=0;r.mapH=0;io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('mapSet',{src:null,w:0,h:0});return;}r.mapData=src;r.mapW=Math.max(0,Number(d.mapW)||0);r.mapH=Math.max(0,Number(d.mapH)||0);/* setMap limpa paredes antigas */r.walls=[];r.doors=[];io.to(s.room).emit('wallsCleared');io.to(s.room).emit('doorsCleared');io.to(s.room).emit('mapUpdated',{src:r.mapData,w:r.mapW,h:r.mapH});io.to(s.room).emit('mapSet',{src:r.mapData,w:r.mapW,h:r.mapH});});
  s.on('setFog',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.fog=!!d.fog;io.to(s.room).emit('fogUpdated',r.fog);io.to(s.room).emit('fogSet',r.fog);});
  s.on('setLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
  s.on('setGlobalLight',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.globalLight=Number(d.light)?1:0;io.to(s.room).emit('lightUpdated',r.globalLight);io.to(s.room).emit('lightSet',r.globalLight);});
