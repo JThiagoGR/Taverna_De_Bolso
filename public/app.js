@@ -243,7 +243,7 @@ socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
 
 socket.on('doorAdded',d=>{doors.push(d);requestDraw();});
 socket.on('doorsAdded',ds=>{if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
-socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0)doors[i]=d;requestDraw();});
+socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0){const prev=doors[i];doors[i]=d;playDoorSound(d.open);}requestDraw();});
 socket.on('doorRemoved',()=>{doors.pop();requestDraw();});
 socket.on('doorsCleared',()=>{doors=[];requestDraw();});
 
@@ -924,9 +924,9 @@ function drawDoorsForMaster(){
 
     if(d.open){
       // Porta aberta: verde tracejada.
-      ctx.strokeStyle='rgba(40,230,110,1)';
+      ctx.strokeStyle='rgba(0,255,120,'+(d.open?1:0.3)+')'; ctx.lineWidth=8/scale;
       ctx.lineWidth=6/scale;
-      ctx.setLineDash([14/scale,10/scale]);
+      
       ctx.beginPath();
       ctx.moveTo(x1,y1);
       ctx.lineTo(x2,y2);
@@ -938,10 +938,10 @@ function drawDoorsForMaster(){
       ctx.textAlign='center';
       ctx.shadowColor='#000';
       ctx.shadowBlur=4/scale;
-      ctx.fillText('ABERTA',mx,my-10/scale);
+      
     }else{
       // Porta fechada: vermelha sólida com X no meio.
-      ctx.strokeStyle='rgba(255,45,45,1)';
+      ctx.strokeStyle='rgba(255,0,0,'+(d.open?0.3:1)+')'; ctx.lineWidth=8/scale;
       ctx.lineWidth=7/scale;
       ctx.setLineDash([]);
       ctx.beginPath();
@@ -954,7 +954,7 @@ function drawDoorsForMaster(){
       ctx.textAlign='center';
       ctx.shadowColor='#000';
       ctx.shadowBlur=5/scale;
-      ctx.fillText('✕',mx,my+7/scale);
+      
     }
 
     ctx.restore();
@@ -1333,3 +1333,14 @@ document.getElementById('saveMapFile')?.addEventListener('change',e=>{
   r.onload=ev=>{try{applyImportedScene(JSON.parse(ev.target.result));}catch(err){alert('Erro ao importar: '+err.message);} e.target.value='';};
   r.readAsText(file);
 });
+
+function playDoorSound(open){
+  try{
+    const a=new Audio(open?
+      'https://actions.google.com/sounds/v1/doors/door_open.ogg':
+      'https://actions.google.com/sounds/v1/doors/door_close.ogg'
+    );
+    a.volume=0.4;
+    a.play();
+  }catch(e){}
+}
