@@ -93,7 +93,7 @@ function sanitizeDoor(d){
   if(!w)return null;
   return {id:String(d.id||('door_'+Date.now()+'_'+Math.random().toString(36).slice(2,6))).slice(0,80),wall:w,open:!!d.open};
 }
-function doorBlocksMove(d){return d && !d.open && Array.isArray(d.wall);}
+function doorBlocksMove(d){return d && d.open!==true && Array.isArray(d.wall);}
 
 io.on('connection',s=>{
  s.on('join',d=>{
@@ -142,55 +142,40 @@ io.on('connection',s=>{
  });
 
  s.on('move',d=>{
-  const roomName = cleanRoom((d&&d.room) || s.room);
-  const r = rooms[roomName];
-  if(!r || !d) return;
+  const roomName=cleanRoom((d&&d.room)||s.room);
+  const r=rooms[roomName]||rooms[s.room];
+  if(!r||!d)return;
 
-  const p = r.players.find(x=>x.id===d.id);
-  if(!p) return;
+  const p=r.players.find(x=>x.id===d.id);
+  if(!p)return;
 
-  const isOwner = !s.isMaster && !p.isNpc && (p.ownerId===s.pid || p.id===s.pid);
-  const isMasterControl = s.isMaster === true;
-  if(!isOwner && !isMasterControl) return;
+  const isOwner=!s.isMaster && !p.isNpc && (p.ownerId===s.pid || p.id===s.pid);
+  const isMasterControl=s.isMaster===true;
+  if(!isOwner&&!isMasterControl)return;
 
-  const nx = Number(d.x);
-  const ny = Number(d.y);
-  if(!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+  const nx=Number(d.x), ny=Number(d.y);
+  if(!Number.isFinite(nx)||!Number.isFinite(ny))return;
 
-  const radius = tokenRadius(p);
+  const radius=tokenRadius(p);
 
-  for(const w of r.walls){
-    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1])) return;
-    if(blockedByWallWithRadius(nx,ny,w,radius)) return;
+  for(const w of (r.walls||[])){
+    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
+    if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
 
   for(const door of (r.doors||[])){
-    if(!doorBlocksMove(door)) continue;
-    const w = door.wall;
-    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1])) return;
-    if(blockedByWallWithRadius(nx,ny,w,radius)) return;
+    if(!doorBlocksMove(door))continue;
+    const w=door.wall;
+    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
+    if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
 
-  if(collidesWithToken(r,p,nx,ny)) return;
+  if(collidesWithToken(r,p,nx,ny))return;
 
-  p.x = nx;
-  p.y = ny;
+  p.x=nx;p.y=ny;
   clampTokenToMapServer(p,r);
 
-  // evento único e direto para todos da sala
-  io.to(roomName).emit('playerMoved', {
-    id:p.id,
-    x:p.x,
-    y:p.y,
-    name:p.name,
-    hp:p.hp,
-    maxHp:p.maxHp,
-    ca:p.ca,
-    light:p.light,
-    ownerId:p.ownerId,
-    isNpc:p.isNpc,
-    img:p.img || ''
-  });
+  io.to(roomName).emit('playerMoved',p);
 });
 
  s.on('updatePlayer',d=>{

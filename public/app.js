@@ -61,18 +61,31 @@ let mapWidth=0,mapHeight=0;
 
 // ===== REDRAW FORÇADO PARA SINCRONIA DE TOKEN =====
 let __forceDrawPending = false;
-function forceTokenRedraw(){
-  if(__forceDrawPending) return;
-  __forceDrawPending = true;
-  requestAnimationFrame(()=>{
-    __forceDrawPending = false;
-    try{ draw(); }catch(e){ console.error('draw error', e); }
-  });
+
+// ===== LOOP DE REDRAW PARA MOVIMENTO VISÍVEL =====
+let __renderLoopActive = false;
+let __lastDrawTime = 0;
+function startRenderLoop(){
+  if(__renderLoopActive)return;
+  __renderLoopActive=true;
+  const step=(t)=>{
+    if(!__renderLoopActive)return;
+    if(t-__lastDrawTime>15){
+      __lastDrawTime=t;
+      try{draw();}catch(e){console.error('draw error',e);}
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function stopRenderLoopSoon(){
+  setTimeout(()=>{__renderLoopActive=false;},180);
 }
 
+function forceTokenRedraw(){startRenderLoop();try{draw();}catch(e){console.error('draw error',e);}stopRenderLoopSoon();}
+
 function requestDraw(){
-  if(typeof draw !== 'function') return;
-  requestAnimationFrame(()=>draw());
+  requestAnimationFrame(()=>{try{draw();}catch(e){console.error('draw error',e);}});
 }
 
 // ===== SINCRONIA ULTRA SUAVE =====
@@ -147,17 +160,16 @@ setInterval(tickRemoteTargets,16);
 function emitMoveThrottled(p){
   if(!p||!me||!me.room)return;
   const now=Date.now();
-  const prev=lastNetMoveById[p.id]||{t:0,x:p.x,y:p.y};
-  const dist=Math.hypot((p.x||0)-(prev.x||0),(p.y||0)-(prev.y||0));
-  if(now-prev.t<35 && dist<1)return;
-  lastNetMoveById[p.id]={t:now,x:p.x,y:p.y};
+  if(!window.__lastMoveEmit)window.__lastMoveEmit={};
+  const prev=window.__lastMoveEmit[p.id]||0;
+  if(now-prev<35)return;
+  window.__lastMoveEmit[p.id]=now;
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
   forceTokenRedraw();
 }
 
 function emitMoveNow(p){
   if(!p||!me||!me.room)return;
-  lastNetMoveById[p.id]={t:Date.now(),x:p.x,y:p.y};
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
   forceTokenRedraw();
 }
@@ -498,16 +510,64 @@ function distPointToSeg(px,py,x1,y1,x2,y2){
   t=Math.max(0,Math.min(1,t));
   return Math.hypot(px-(x1+t*dx),py-(y1+t*dy));
 }
-function blockedMoveLocal(p,nx,ny){
-  const r=tokenRadius(p);
-  for(const w of walls){
-    if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return true;
-    if(distPointToSeg(nx,ny,w[0][0],w[0][1],w[1][0],w[1][1])<r)return true;
+
+// ===== FÍSICA DE PORTAS NO CLIENTE =====
+function distPointToSegLocal(px,py,x1,y1,x2,y2){
+  const dx=x2-x1, dy=y2-y1;
+  const len2=dx*dx+dy*dy;
+  if(len2<=0)return Math.hypot(px-x1,py-y1);
+  let t=((px-x1)*dx+(py-y1)*dy)/len2;
+  t=Math.max(0,Math.min(1,t));
+  const x=x1+t*dx, y=y1+t*dy;
+  return Math.hypot(px-x,py-y);
+}
+function lineIntersectLocal(ax,ay,bx,by,cx,cy,dx,dy){
+  const det=(bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+  if(Math.abs(det)<0.000001)return false;
+  const t=((cx-ax)*(dy-cy)-(cy-ay)*(dx-cx))/det;
+  const u=((cx-ax)*(by-ay)-(cy-ay)*(bx-ax))/det;
+  return t>=0&&t<=1&&u>=0&&u<=1;
+}
+function blockedBySegmentRadiusLocal(x,y,w,radius){
+  if(!w||!Array.isArray(w))return false;
+  return distPointToSegLocal(x,y,w[0][0],w[0][1],w[1][0],w[1][1]) < Math.max(2,radius*0.75);
+}
+function doorBlocksMoveLocal(door){
+  return door && !door.open && Array.isArray(door.wall);
+}
+
+function blockedMoveLocal(p,x,y){
+  if(!p)return true;
+  const radius = typeof tokenRadius==='function' ? tokenRadius(p) : 18;
+
+  // Limite do mapa local
+  if(mapImg && mapWidth && mapHeight){
+    const margin=Math.max(18,radius);
+    if(x<margin||y<margin||x>mapWidth-margin||y>mapHeight-margin)return true;
   }
-  return players.some(o=>{
-    if(!o||o.id===p.id)return false;
-    return Math.hypot(o.x-nx,o.y-ny)<(r+tokenRadius(o));
-  });
+
+  // Paredes
+  for(const w of (walls||[])){
+    if(lineIntersectLocal(p.x,p.y,x,y,w[0][0],w[0][1],w[1][0],w[1][1]))return true;
+    if(blockedBySegmentRadiusLocal(x,y,w,radius))return true;
+  }
+
+  // Portas fechadas
+  for(const door of (doors||[])){
+    if(!doorBlocksMoveLocal(door))continue;
+    const w=door.wall;
+    if(lineIntersectLocal(p.x,p.y,x,y,w[0][0],w[0][1],w[1][0],w[1][1]))return true;
+    if(blockedBySegmentRadiusLocal(x,y,w,radius))return true;
+  }
+
+  // Outros tokens
+  for(const other of (players||[])){
+    if(!other||other.id===p.id)continue;
+    const rr=radius+(typeof tokenRadius==='function'?tokenRadius(other):18);
+    if(Math.hypot((other.x||0)-x,(other.y||0)-y)<rr*0.9)return true;
+  }
+
+  return false;
 }
 function tokenLightRadius(p){
   const raw=p?p.light:undefined;
@@ -617,7 +677,7 @@ canvas.addEventListener('mousemove',e=>{
 
   if(dragging&&dragging!=='pan'){
     if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
-    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
+    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);startRenderLoop();if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
     return;
   }
 
@@ -787,7 +847,7 @@ canvas.addEventListener('touchmove',e=>{
 
   if(dragging&&dragging!=='pan'){
     if(!me.isMaster&&dragging.isNpc){dragging=null;return;}
-    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
+    if(!blockedMoveLocal(dragging,x,y)){smoothTokenMove(dragging,x,y);startRenderLoop();if(!me.isMaster&&followMode&&dragging.ownerId===me.pid)centerOnToken(dragging);emitMoveThrottled(dragging);requestDraw();}
     return;
   }
 
