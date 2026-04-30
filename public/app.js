@@ -337,6 +337,7 @@ function previewDrawShape(x,y){
 
 
 
+
 function commitDrawTool(x,y){
   if(!me?.isMaster || tool!=='draw')return false;
 
@@ -376,6 +377,7 @@ function commitDrawTool(x,y){
   wallStart=null;freeDrawPoints=null;circleStart=null;
   return false;
 }
+
 
 
 function makeCircleWalls(cx,cy,r){
@@ -908,6 +910,7 @@ function getGridBounds(){
 
 
 
+
 function drawDoorsForMaster(){
   if(!me||!me.isMaster)return;
 
@@ -924,7 +927,6 @@ function drawDoorsForMaster(){
     ctx.lineCap='round';
     ctx.lineJoin='round';
 
-    // sombra preta para destacar
     ctx.strokeStyle='rgba(0,0,0,0.9)';
     ctx.lineWidth=9/scale;
     ctx.beginPath();
@@ -932,7 +934,6 @@ function drawDoorsForMaster(){
     ctx.lineTo(x2,y2);
     ctx.stroke();
 
-    // cor real da porta
     ctx.strokeStyle=d.open?'rgba(0,255,120,1)':'rgba(255,0,0,1)';
     ctx.lineWidth=6/scale;
     ctx.beginPath();
@@ -947,6 +948,8 @@ function drawDoorsForMaster(){
 }
 
 
+
+
 function findDoorAt(x,y){
   if(!me||!me.isMaster)return null;
   let best=null,bestD=999999;
@@ -958,6 +961,7 @@ function findDoorAt(x,y){
   });
   return best;
 }
+
 
 function drawPlayerVisionForMaster(){
   if(!me || !me.isMaster) return;
