@@ -212,3 +212,6 @@ html,body{
     z-index:250 !important;
   }
 }
+
+/* role toolbar visibility */
+.masterOnly{ }
