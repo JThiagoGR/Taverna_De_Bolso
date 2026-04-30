@@ -11,6 +11,7 @@ function clampTokenToMapServer(p, room){
 
 const express=require('express');const http=require('http');const {Server}=require('socket.io');const path=require('path');
 const app=express();const server=http.createServer(app);const io=new Server(server,{cors:{origin:'*'},maxHttpBufferSize:10e6});
+app.get('/health',(req,res)=>res.status(200).send('ok'));
 app.use(express.static(path.join(__dirname,'public')));
 const rooms={};
 
@@ -31,13 +32,15 @@ function makeRoom(room){
       zoom: 1,
       offsetX: 0,
       offsetY: 0,
-      ruler: null
+      ruler: null,
+      history: []
     };
   }
 
   if(!Array.isArray(rooms[id].players)) rooms[id].players = [];
   if(!Array.isArray(rooms[id].walls)) rooms[id].walls = [];
   if(!Array.isArray(rooms[id].doors)) rooms[id].doors = [];
+  if(!Array.isArray(rooms[id].history)) rooms[id].history = [];
 
   return rooms[id];
 }
@@ -222,9 +225,9 @@ io.on('connection',s=>{
     if(w){r.walls.push(w);added.push(w);}
   }
   if(r.walls.length>1000)r.walls=r.walls.slice(-1000);
-  if(added.length)io.to(s.room).emit('wallsAdded',added);
+  if(added.length){r.history=r.history||[];r.history.push({type:'wall',count:added.length});io.to(s.room).emit('wallsAdded',added);}
  });
- s.on('replaceWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];const arr=Array.isArray(d.walls)?d.walls:[];for(const raw of arr.slice(0,1200)){const w=sanitizeWall(raw);if(w)r.walls.push(w);}io.to(s.room).emit('wallsCleared');if(r.walls.length)io.to(s.room).emit('wallsAdded',r.walls);io.to(s.room).emit('state',r);});
+ s.on('replaceWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.history=[];const arr=Array.isArray(d.walls)?d.walls:[];for(const raw of arr.slice(0,1200)){const w=sanitizeWall(raw);if(w)r.walls.push(w);}io.to(s.room).emit('wallsCleared');if(r.walls.length)io.to(s.room).emit('wallsAdded',r.walls);io.to(s.room).emit('state',r);});
  s.on('replaceNpcs',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.players=r.players.filter(p=>!p.isNpc);const arr=Array.isArray(d.npcs)?d.npcs:[];for(const n of arr.slice(0,200)){r.players.push({id:String(n.id||('npc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6))).slice(0,80),name:String(n.name||'NPC').slice(0,40),x:num(n.x,400,-100000,100000),y:num(n.y,300,-100000,100000),hp:num(n.hp,10,0,9999),maxHp:num(n.maxHp,10,1,9999),ca:num(n.ca,10,1,99),light:num(n.light,0,0,500),ownerId:String(n.ownerId||s.pid||'master').slice(0,80),isNpc:true,img:String(n.img||'').slice(0,2000000)});}io.to(s.room).emit('state',r);});
  s.on('addDoor',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;
@@ -256,18 +259,46 @@ io.on('connection',s=>{
     if(door)r.doors.push(door);
   }
   io.to(s.room).emit('doorsCleared');
-  if(r.doors.length)io.to(s.room).emit('doorsAdded',r.doors);
+  if(r.doors.length){r.history=r.history||[];r.history.push({type:'door',count:r.doors.length});io.to(s.room).emit('doorsAdded',r.doors);}
   io.to(s.room).emit('state',r);
  });
  s.on('undoWall',d=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];
   if(!r||!isMaster(s))return;
-  if(r.walls.length>0){
+
+  r.history=r.history||[];
+  const last=r.history.pop();
+
+  if(last&&last.type==='door'){
+    if((r.doors||[]).length){
+      r.doors.pop();
+      io.to(s.room).emit('doorRemoved');
+    }
+    return;
+  }
+
+  if(last&&last.type==='wall'){
+    const count=Math.max(1,Number(last.count)||1);
+    for(let i=0;i<count;i++){
+      if(r.walls.length)r.walls.pop();
+    }
+    io.to(s.room).emit('wallsUpdated',r.walls);
+    return;
+  }
+
+  // fallback para cenas antigas sem histórico
+  if((r.doors||[]).length){
+    r.doors.pop();
+    io.to(s.room).emit('doorRemoved');
+    return;
+  }
+  if(r.walls.length){
     r.walls.pop();
     io.to(s.room).emit('wallRemoved');
   }
  });
- s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.doors=[];io.to(s.room).emit('wallsCleared');io.to(s.room).emit('doorsCleared');});
+
+ s.on('clearWalls',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.doors=[];r.history=[];io.to(s.room).emit('wallsCleared');io.to(s.room).emit('doorsCleared');});
  s.on('clearAll',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.walls=[];r.doors=[];r.players=r.players.filter(p=>!p.isNpc);r.mapData=null;r.mapW=0;r.mapH=0;r.ruler=null;io.to(s.room).emit('allCleared');io.to(s.room).emit('mapCleared');io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('state',r);});
  s.on('clearMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;r.mapData=null;r.mapW=0;r.mapH=0;io.to(s.room).emit('mapCleared');io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('state',r);});
  s.on('setMap',d=>{const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!isMaster(s))return;const src=String(d.mapData||'').slice(0,9000000);if(!src){r.mapData=null;r.mapW=0;r.mapH=0;io.to(s.room).emit('mapUpdated',{src:null,w:0,h:0});io.to(s.room).emit('mapSet',{src:null,w:0,h:0});return;}r.mapData=src;r.mapW=Math.max(0,Number(d.mapW)||0);r.mapH=Math.max(0,Number(d.mapH)||0);/* setMap limpa paredes antigas */r.walls=[];r.doors=[];io.to(s.room).emit('wallsCleared');io.to(s.room).emit('doorsCleared');io.to(s.room).emit('mapUpdated',{src:r.mapData,w:r.mapW,h:r.mapH});io.to(s.room).emit('mapSet',{src:r.mapData,w:r.mapW,h:r.mapH});});
@@ -292,4 +323,4 @@ io.on('connection',s=>{
  });
  s.on('disconnect',()=>{if(!s.room)return;setTimeout(()=>{const live=io.sockets.adapter.rooms.get(s.room);if(!live||live.size===0)delete rooms[s.room];},5*60*1000);});
 });
-const PORT=process.env.PORT||3000;server.listen(PORT,'0.0.0.0',()=>console.log('🍺 Taverna De Bolso - layout antigo na porta '+PORT));
+const PORT = process.env.PORT || 8080;server.listen(PORT,'0.0.0.0',()=>console.log('🍺 Taverna De Bolso - layout antigo na porta '+PORT));

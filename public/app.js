@@ -250,6 +250,7 @@ socket.on('doorsCleared',()=>{doors=[];requestDraw();});
 socket.on('wallAdded',w=>{walls.push(w);draw();});
 socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
 socket.on('wallsCleared',()=>{walls=[];draw();});
+socket.on('wallsUpdated',ws=>{walls=Array.isArray(ws)?ws:[];requestDraw();});
 socket.on('wallRemoved',()=>{walls.pop();requestDraw();});
   socket.on('allCleared',()=>{walls=[];players=players.filter(p=>!p.isNpc);clearLocalMap();});
 socket.on('mapCleared',()=>clearLocalMap());
