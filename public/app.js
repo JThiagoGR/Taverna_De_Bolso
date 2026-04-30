@@ -307,7 +307,7 @@ function previewDrawShape(x,y){
   ctx.save();
   ctx.translate(offsetX,offsetY);
   ctx.scale(scale,scale);
-  ctx.strokeStyle=drawMode==='door'?'#ffd23c':'#c97c3d';
+  ctx.strokeStyle=drawMode==='door'?'#ff3c3c':'#c97c3d';
   ctx.lineWidth=drawMode==='door'?4/scale:2/scale;
   ctx.setLineDash([6/scale,4/scale]);
 
@@ -870,7 +870,7 @@ function drawDoorsForMaster(){
     if(!d||!d.wall)return;
     const w=d.wall;
     ctx.save();
-    ctx.strokeStyle=d.open?'rgba(60,220,120,0.95)':'rgba(255,210,60,0.95)';
+    ctx.strokeStyle=d.open?'rgba(60,220,120,0.95)':'rgba(255,60,60,0.95)';
     ctx.lineWidth=5/scale;
     ctx.setLineDash(d.open?[10/scale,8/scale]:[]);
     ctx.beginPath();
