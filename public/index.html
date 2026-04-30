@@ -19,6 +19,12 @@
     <label>Ambiente</label>
     <div class="row"><button onclick="toggleFog()">🌫️ Névoa</button><button onclick="toggleLight()">💡 Luz Global</button></div>
   </div>
+    <div class="section">
+    <label>Salvar / Importar Cena</label>
+    <div class="row"><button onclick="exportFullMap()">💾 Salvar</button><button onclick="importFullMapClick()">📂 Importar</button></div>
+    <input type="file" id="saveMapFile" accept="application/json,.json" style="display:none">
+  </div>
+
   <div class="section">
     <label>Jogadores na Mesa</label>
     <div id="playerList"></div>

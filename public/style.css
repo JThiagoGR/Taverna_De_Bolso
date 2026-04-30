@@ -215,3 +215,5 @@ html,body{
 
 /* role toolbar visibility */
 .masterOnly{ }
+
+#saveMapFile{display:none}

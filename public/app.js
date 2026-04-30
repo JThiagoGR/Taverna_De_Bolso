@@ -1153,3 +1153,57 @@ canvas.addEventListener('touchend', e => {
   lastTapTime = now;
   lastTapId = hit.id;
 }, true);
+
+// SAVE_IMPORT_COMPLETO_FINAL
+function exportFullMap(){
+  if(!me||!me.isMaster)return alert('Só o Mestre pode salvar.');
+  const data={
+    version:1,
+    savedAt:new Date().toISOString(),
+    map:{data:mapData||null,w:mapWidth||0,h:mapHeight||0},
+    walls:Array.isArray(walls)?walls:[],
+    npcs:players.filter(p=>p.isNpc).map(p=>({
+      id:p.id,name:p.name,x:p.x,y:p.y,hp:p.hp,maxHp:p.maxHp,ca:p.ca,
+      light:p.light||0,ownerId:p.ownerId||'master',isNpc:true,img:p.img||''
+    }))
+  };
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='taverna_cena_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+function importFullMapClick(){
+  if(!me||!me.isMaster)return alert('Só o Mestre pode importar.');
+  const input=document.getElementById('saveMapFile');
+  if(input)input.click();
+}
+function applyImportedScene(data){
+  if(!data||typeof data!=='object')throw new Error('Arquivo inválido');
+  const m=data.map||{};
+  mapData=m.data||null; mapWidth=Number(m.w)||0; mapHeight=Number(m.h)||0;
+  walls=Array.isArray(data.walls)?data.walls:[];
+  const npcs=Array.isArray(data.npcs)?data.npcs:[];
+  players=players.filter(p=>!p.isNpc);
+  npcs.forEach(n=>players.push({
+    id:n.id||('npc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)),
+    name:String(n.name||'NPC').slice(0,40),
+    x:Number(n.x)||400,y:Number(n.y)||300,
+    hp:Number(n.hp)||10,maxHp:Number(n.maxHp)||Number(n.hp)||10,
+    ca:Number(n.ca)||10,light:Number(n.light)||0,
+    ownerId:n.ownerId||me.pid||'master',isNpc:true,img:n.img||''
+  }));
+  if(mapData){mapImg=new Image();mapImg.onload=()=>{if(!mapWidth)mapWidth=mapImg.naturalWidth||mapImg.width||0;if(!mapHeight)mapHeight=mapImg.naturalHeight||mapImg.height||0;requestDraw();};mapImg.src=mapData;}
+  else{mapImg=null;mapWidth=0;mapHeight=0;}
+  socket.emit('setMap',{room:me.room,mapData:mapData||'',mapW:mapWidth,mapH:mapHeight});
+  socket.emit('replaceWalls',{room:me.room,walls});
+  socket.emit('replaceNpcs',{room:me.room,npcs});
+  updatePlayerList();requestDraw();
+}
+document.getElementById('saveMapFile')?.addEventListener('change',e=>{
+  const file=e.target.files&&e.target.files[0]; if(!file)return;
+  const r=new FileReader();
+  r.onload=ev=>{try{applyImportedScene(JSON.parse(ev.target.result));}catch(err){alert('Erro ao importar: '+err.message);} e.target.value='';};
+  r.readAsText(file);
+});
