@@ -102,7 +102,7 @@ io.on('connection',s=>{
   s.room=roomName;
   s.isMaster=!!d.isMaster;
   s.pid=s.isMaster?'master_'+roomName:(d.tokenId?String(d.tokenId).slice(0,60):makeId(d.name,roomName));
-  s.join(roomName);s.room=roomName;
+  s.room=roomName;s.room=roomName;s.join(roomName);
 
   // Mestre NÃO cria token automático.
   // Também remove qualquer token antigo de Mestre que tenha ficado na sala.
@@ -143,21 +143,19 @@ io.on('connection',s=>{
 
  s.on('move',d=>{
   const roomName = cleanRoom((d&&d.room) || s.room);
-  const r = rooms[roomName] || rooms[s.room];
+  const r = rooms[roomName];
   if(!r || !d) return;
 
   const p = r.players.find(x=>x.id===d.id);
   if(!p) return;
 
-  // Segurança: jogador só move o próprio token; Mestre move NPCs/tokens.
-  const ownsToken = !s.isMaster && !p.isNpc && (p.ownerId===s.pid || p.id===s.pid);
-  const masterControls = s.isMaster === true;
-  if(!ownsToken && !masterControls) return;
+  const isOwner = !s.isMaster && !p.isNpc && (p.ownerId===s.pid || p.id===s.pid);
+  const isMasterControl = s.isMaster === true;
+  if(!isOwner && !isMasterControl) return;
 
   const nx = Number(d.x);
   const ny = Number(d.y);
-  if(!Number.isFinite(nx)||!Number.isFinite(ny)) return;
-  if(Math.hypot((p.x||0)-nx,(p.y||0)-ny)<0.1) return;
+  if(!Number.isFinite(nx) || !Number.isFinite(ny)) return;
 
   const radius = tokenRadius(p);
 
@@ -179,10 +177,20 @@ io.on('connection',s=>{
   p.y = ny;
   clampTokenToMapServer(p,r);
 
-  // Envia o estado do token atualizado para TODOS da sala, incluindo Mestre e outros jogadores.
-  if(process.env.DEBUG_MOVES==='1')console.log('move',roomName,p.id,p.x,p.y);
-  io.to(roomName).emit('playerMoved',p);
-  io.to(roomName).emit('moved',{id:p.id,x:p.x,y:p.y});
+  // evento único e direto para todos da sala
+  io.to(roomName).emit('playerMoved', {
+    id:p.id,
+    x:p.x,
+    y:p.y,
+    name:p.name,
+    hp:p.hp,
+    maxHp:p.maxHp,
+    ca:p.ca,
+    light:p.light,
+    ownerId:p.ownerId,
+    isNpc:p.isNpc,
+    img:p.img || ''
+  });
 });
 
  s.on('updatePlayer',d=>{

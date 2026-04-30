@@ -131,7 +131,11 @@ setInterval(tickRemoteTargets,16);
 
 function emitMoveThrottled(p){
   if(!p||!me||!me.room)return;
-  if(!shouldSendMoveNet(p))return;
+  const now=Date.now();
+  const prev=lastNetMoveById[p.id]||{t:0,x:p.x,y:p.y};
+  const dist=Math.hypot((p.x||0)-(prev.x||0),(p.y||0)-(prev.y||0));
+  if(now-prev.t<35 && dist<1)return;
+  lastNetMoveById[p.id]={t:now,x:p.x,y:p.y};
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
 }
 
@@ -328,15 +332,7 @@ socket.on('npcAdded',p=>updateOrAddPlayer(p));
   socket.on('playerMoved',p=>{
   const i=players.findIndex(x=>x.id===p.id);
   if(i>=0){
-    const isDraggingThis = dragging && dragging.id===p.id;
-    const localOwn = me && (players[i].ownerId===me.pid || players[i].id===me.pid) && !players[i].isNpc;
-
-    if(isDraggingThis || localOwn){
-      players[i]={...players[i],...p};
-    }else{
-      players[i]={...players[i],...p,x:players[i].x,y:players[i].y};
-      setRemoteTarget(p.id,p.x,p.y);
-    }
+    players[i]={...players[i],...p};
   }else{
     players.push(p);
   }
@@ -1432,15 +1428,66 @@ socket.on('disconnect',()=>console.log('Desconectado. Tentando reconectar...'));
 socket.on('moved',d=>{
   const p=players.find(x=>x.id===d.id);
   if(p){
-    const isDraggingThis = dragging && dragging.id===p.id;
-    const localOwn = me && (p.ownerId===me.pid || p.id===me.pid) && !p.isNpc;
-
-    if(isDraggingThis || localOwn){
-      p.x=d.x;p.y=d.y;
-    }else{
-      setRemoteTarget(d.id,d.x,d.y);
-    }
+    p.x=d.x;
+    p.y=d.y;
     if(p.id===selectedId)syncTokenPanel();
     requestDraw();
   }
 });
+window.debugSyncMove = function(){
+  console.log('SYNC DEBUG', {me, players: players.map(p=>({id:p.id,ownerId:p.ownerId,isNpc:p.isNpc,x:p.x,y:p.y}))});
+};
+
+
+// ===== LISTENERS DE SINCRONIA SEGUROS =====
+if(!window.__tavernaSafeListenersInstalled){
+  window.__tavernaSafeListenersInstalled = true;
+
+  socket.on('playerUpdated',p=>{
+    const i=players.findIndex(x=>x.id===p.id);
+    if(i>=0)players[i]={...players[i],...p}; else players.push(p);
+    if(p.id===selectedId)syncTokenPanel();
+    requestDraw();
+  });
+
+  socket.on('wallAdded',w=>{walls.push(w);requestDraw();});
+  socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
+  socket.on('wallRemoved',()=>{walls.pop();requestDraw();});
+  socket.on('wallsUpdated',ws=>{walls=Array.isArray(ws)?ws:[];requestDraw();});
+  socket.on('wallsCleared',()=>{walls=[];requestDraw();});
+
+  socket.on('doorAdded',d=>{doors=doors||[];doors.push(d);requestDraw();});
+  socket.on('doorsAdded',ds=>{doors=doors||[];if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
+  socket.on('doorUpdated',d=>{
+    doors=doors||[];
+    const i=doors.findIndex(x=>x.id===d.id);
+    if(i>=0)doors[i]=d; else doors.push(d);
+    requestDraw();
+  });
+  socket.on('doorRemoved',()=>{doors=doors||[];doors.pop();requestDraw();});
+  socket.on('doorsCleared',()=>{doors=[];requestDraw();});
+
+  socket.on('mapCleared',()=>{if(typeof clearLocalMap==='function')clearLocalMap();});
+  socket.on('mapSet',data=>{
+    const src=(typeof data==='object'&&data)?data.src:data;
+    if(!src){if(typeof clearLocalMap==='function')clearLocalMap();return;}
+    mapData=src;
+    mapWidth=(typeof data==='object'&&data)?Number(data.w)||0:0;
+    mapHeight=(typeof data==='object'&&data)?Number(data.h)||0:0;
+    mapImg=new Image();
+    mapImg.onload=()=>{
+      if(!mapWidth)mapWidth=mapImg.naturalWidth||mapImg.width||0;
+      if(!mapHeight)mapHeight=mapImg.naturalHeight||mapImg.height||0;
+      requestDraw();
+    };
+    mapImg.src=mapData;
+  });
+
+  socket.on('allCleared',()=>{
+    walls=[];
+    doors=[];
+    players=players.filter(p=>!p.isNpc);
+    if(typeof clearLocalMap==='function')clearLocalMap();
+    requestDraw();
+  });
+}
