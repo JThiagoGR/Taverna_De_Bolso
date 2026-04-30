@@ -130,13 +130,13 @@ function tickRemoteTargets(){
 setInterval(tickRemoteTargets,16);
 
 function emitMoveThrottled(p){
-  if(!p||!me)return;
+  if(!p||!me||!me.room)return;
   if(!shouldSendMoveNet(p))return;
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
 }
 
 function emitMoveNow(p){
-  if(!p||!me)return;
+  if(!p||!me||!me.room)return;
   lastNetMoveById[p.id]={t:Date.now(),x:p.x,y:p.y};
   socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
 }
@@ -328,8 +328,10 @@ socket.on('npcAdded',p=>updateOrAddPlayer(p));
   socket.on('playerMoved',p=>{
   const i=players.findIndex(x=>x.id===p.id);
   if(i>=0){
+    const isDraggingThis = dragging && dragging.id===p.id;
     const localOwn = me && (players[i].ownerId===me.pid || players[i].id===me.pid) && !players[i].isNpc;
-    if(localOwn || (dragging&&dragging.id===p.id)){
+
+    if(isDraggingThis || localOwn){
       players[i]={...players[i],...p};
     }else{
       players[i]={...players[i],...p,x:players[i].x,y:players[i].y};
@@ -1430,8 +1432,10 @@ socket.on('disconnect',()=>console.log('Desconectado. Tentando reconectar...'));
 socket.on('moved',d=>{
   const p=players.find(x=>x.id===d.id);
   if(p){
+    const isDraggingThis = dragging && dragging.id===p.id;
     const localOwn = me && (p.ownerId===me.pid || p.id===me.pid) && !p.isNpc;
-    if(localOwn || (dragging&&dragging.id===p.id)){
+
+    if(isDraggingThis || localOwn){
       p.x=d.x;p.y=d.y;
     }else{
       setRemoteTarget(d.id,d.x,d.y);
