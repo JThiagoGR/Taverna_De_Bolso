@@ -307,7 +307,7 @@ function previewDrawShape(x,y){
   ctx.save();
   ctx.translate(offsetX,offsetY);
   ctx.scale(scale,scale);
-  ctx.strokeStyle=drawMode==='door'?'#ff3c3c':'#c97c3d';
+  ctx.strokeStyle=drawMode==='door'?'rgba(255,45,45,1)':'#c97c3d';
   ctx.lineWidth=drawMode==='door'?4/scale:2/scale;
   ctx.setLineDash([6/scale,4/scale]);
 
@@ -333,6 +333,41 @@ function previewDrawShape(x,y){
   }
 
   ctx.restore();
+}
+
+
+function commitDrawTool(x,y){
+  if(!me?.isMaster || tool!=='draw')return false;
+
+  if(drawMode==='line'&&wallStart){
+    const end=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
+      socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
+    }
+  }
+
+  if(drawMode==='door'&&wallStart){
+    const end=[Math.round(x/50)*50,Math.round(y/50)*50];
+    if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
+      socket.emit('addDoor',{room:me.room,door:{wall:[wallStart,end],open:false}});
+    }
+  }
+
+  if(drawMode==='free'&&freeDrawPoints&&freeDrawPoints.length>1){
+    const wallsBatch=[];
+    for(let i=0;i<freeDrawPoints.length-1;i++)wallsBatch.push([freeDrawPoints[i],freeDrawPoints[i+1]]);
+    emitWallsBatch(wallsBatch);
+  }
+
+  if(drawMode==='circle'&&circleStart){
+    const r=Math.hypot(x-circleStart[0],y-circleStart[1]);
+    if(r>8)emitWallsBatch(makeCircleWalls(circleStart[0],circleStart[1],r));
+  }
+
+  wallStart=null;
+  freeDrawPoints=null;
+  circleStart=null;
+  return true;
 }
 
 function makeCircleWalls(cx,cy,r){
@@ -861,33 +896,73 @@ function getGridBounds(){
 
 
 
+
 function drawDoorsForMaster(){
   if(!me||!me.isMaster)return;
   ctx.save();
   ctx.translate(offsetX,offsetY);
   ctx.scale(scale,scale);
+
   (doors||[]).forEach(d=>{
     if(!d||!d.wall)return;
     const w=d.wall;
+    const x1=w[0][0], y1=w[0][1], x2=w[1][0], y2=w[1][1];
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+
     ctx.save();
-    ctx.strokeStyle=d.open?'rgba(60,220,120,0.95)':'rgba(255,60,60,0.95)';
-    ctx.lineWidth=5/scale;
-    ctx.setLineDash(d.open?[10/scale,8/scale]:[]);
+    ctx.lineCap='round';
+    ctx.lineJoin='round';
+
+    // Sombra escura para destacar da parede.
+    ctx.strokeStyle='rgba(0,0,0,0.9)';
+    ctx.lineWidth=10/scale;
+    ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.moveTo(w[0][0],w[0][1]);
-    ctx.lineTo(w[1][0],w[1][1]);
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
     ctx.stroke();
-    const mx=(w[0][0]+w[1][0])/2,my=(w[0][1]+w[1][1])/2;
-    ctx.fillStyle='#fff';
-    ctx.font=`${14/scale}px sans-serif`;
-    ctx.textAlign='center';
-    ctx.shadowColor='#000';
-    ctx.shadowBlur=4/scale;
-    ctx.fillText(d.open?'porta aberta':'porta fechada',mx,my-8/scale);
+
+    if(d.open){
+      // Porta aberta: verde tracejada.
+      ctx.strokeStyle='rgba(40,230,110,1)';
+      ctx.lineWidth=6/scale;
+      ctx.setLineDash([14/scale,10/scale]);
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.lineTo(x2,y2);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.fillStyle='rgba(40,230,110,1)';
+      ctx.font=`${18/scale}px sans-serif`;
+      ctx.textAlign='center';
+      ctx.shadowColor='#000';
+      ctx.shadowBlur=4/scale;
+      ctx.fillText('ABERTA',mx,my-10/scale);
+    }else{
+      // Porta fechada: vermelha sólida com X no meio.
+      ctx.strokeStyle='rgba(255,45,45,1)';
+      ctx.lineWidth=7/scale;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.lineTo(x2,y2);
+      ctx.stroke();
+
+      ctx.fillStyle='rgba(255,45,45,1)';
+      ctx.font=`${22/scale}px sans-serif`;
+      ctx.textAlign='center';
+      ctx.shadowColor='#000';
+      ctx.shadowBlur=5/scale;
+      ctx.fillText('✕',mx,my+7/scale);
+    }
+
     ctx.restore();
   });
+
   ctx.restore();
 }
+
 function findDoorAt(x,y){
   if(!me||!me.isMaster)return null;
   let best=null,bestD=999999;

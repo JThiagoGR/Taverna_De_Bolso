@@ -86,7 +86,7 @@ function doorBlocksMove(d){return d && !d.open && Array.isArray(d.wall);}
 io.on('connection',s=>{
  s.on('join',d=>{
   if(!d||!d.room)return;
-  const roomName=cleanRoom(d.room),r=makeRoom(roomName);
+  const roomName=cleanRoom(d.room),r=makeRoom(roomName);r.doors=r.doors||[];
   s.room=roomName;
   s.isMaster=!!d.isMaster;
   s.pid=s.isMaster?'master_'+roomName:(d.tokenId?String(d.tokenId).slice(0,60):makeId(d.name,roomName));
