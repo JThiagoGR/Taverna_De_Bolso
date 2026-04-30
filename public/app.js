@@ -493,7 +493,14 @@ canvas.addEventListener('mousedown',e=>{
     return;
   }
 
-  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,26);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){
+  const w = doorHit.wall;
+  const dist = distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
+  if(dist < 20){
+    socket.emit('toggleDoor',{room:me.room,id:doorHit.id});
+    return;
+  }
+}const hit=findTokenAt(x,y,26);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -635,7 +642,14 @@ canvas.addEventListener('touchstart',e=>{
     return;
   }
 
-  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,30);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){
+  const w = doorHit.wall;
+  const dist = distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
+  if(dist < 20){
+    socket.emit('toggleDoor',{room:me.room,id:doorHit.id});
+    return;
+  }
+}const hit=findTokenAt(x,y,30);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -957,7 +971,7 @@ function findDoorAt(x,y){
     if(!d||!d.wall)return;
     const w=d.wall;
     const dd=distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
-    if(dd<35&&dd<bestD){best=d;bestD=dd;}
+    if(dd<20&&dd<bestD){best=d;bestD=dd;}
   });
   return best;
 }
