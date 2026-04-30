@@ -59,92 +59,7 @@ let me=null,players=[],walls=[],doors=[],dragging=null,offsetX=0,offsetY=0,scale
 let drawPending=false,lastEmitMove=0,lastEmitZoom=0;
 let mapWidth=0,mapHeight=0;
 function requestDraw(){if(drawPending)return;drawPending=true;requestAnimationFrame(()=>{drawPending=false;draw();});}
-
-// ===== SINCRONIA ULTRA SUAVE =====
-const NET_MOVE_INTERVAL = 45;
-const NET_MOVE_MIN_DIST = 1;
-const REMOTE_SMOOTH_SPEED = 14; // maior = mais rápido, sem teleportar visualmente
-const REMOTE_SNAP_DIST = 900;   // se estiver MUITO longe, corrige para evitar atravessar mapa inteiro
-const remoteTargets = {};
-const lastNetMoveById = {};
-let lastRemoteSmoothTime = performance.now();
-
-function shouldSendMoveNet(p){
-  if(!p)return false;
-  const now=Date.now();
-  const prev=lastNetMoveById[p.id]||{t:0,x:p.x,y:p.y};
-  const dt=now-prev.t;
-  const dist=Math.hypot((p.x||0)-(prev.x||0),(p.y||0)-(prev.y||0));
-  if(dt<NET_MOVE_INTERVAL && dist<NET_MOVE_MIN_DIST)return false;
-  lastNetMoveById[p.id]={t:now,x:p.x,y:p.y};
-  return true;
-}
-
-function setRemoteTarget(id,x,y){
-  if(!id)return;
-  remoteTargets[id]={x:Number(x),y:Number(y),time:performance.now()};
-}
-
-function tickRemoteTargets(){
-  const now=performance.now();
-  const dt=Math.min(0.08,(now-lastRemoteSmoothTime)/1000);
-  lastRemoteSmoothTime=now;
-
-  let changed=false;
-  const alpha=1-Math.exp(-REMOTE_SMOOTH_SPEED*dt);
-
-  Object.keys(remoteTargets).forEach(id=>{
-    const p=players.find(t=>t.id===id);
-    const t=remoteTargets[id];
-
-    if(!p||!t){delete remoteTargets[id];return;}
-    if(dragging&&dragging.id===id)return;
-
-    const dx=t.x-p.x;
-    const dy=t.y-p.y;
-    const d=Math.hypot(dx,dy);
-
-    if(d>REMOTE_SNAP_DIST){
-      p.x=t.x;
-      p.y=t.y;
-      delete remoteTargets[id];
-      changed=true;
-      return;
-    }
-
-    if(d<0.35){
-      p.x=t.x;
-      p.y=t.y;
-      delete remoteTargets[id];
-      changed=true;
-      return;
-    }
-
-    p.x+=dx*alpha;
-    p.y+=dy*alpha;
-    changed=true;
-  });
-
-  if(changed)requestDraw();
-}
-setInterval(tickRemoteTargets,16);
-
-function emitMoveThrottled(p){
-  if(!p||!me||!me.room)return;
-  const now=Date.now();
-  const prev=lastNetMoveById[p.id]||{t:0,x:p.x,y:p.y};
-  const dist=Math.hypot((p.x||0)-(prev.x||0),(p.y||0)-(prev.y||0));
-  if(now-prev.t<35 && dist<1)return;
-  lastNetMoveById[p.id]={t:now,x:p.x,y:p.y};
-  socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
-}
-
-function emitMoveNow(p){
-  if(!p||!me||!me.room)return;
-  lastNetMoveById[p.id]={t:Date.now(),x:p.x,y:p.y};
-  socket.emit('move',{room:me.room,id:p.id,x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10});
-}
-
+function emitMoveThrottled(token){const now=Date.now();if(now-lastEmitMove<45)return;lastEmitMove=now;socket.emit('move',{room:me.room,id:token.id,x:token.x,y:token.y});}
 function emitZoomThrottled(force=false){if(!me||!me.isMaster)return;const now=Date.now();if(!force&&now-lastEmitZoom<180)return;lastEmitZoom=now;socket.emit('setZoom',{room:me.room,zoom:scale,offsetX,offsetY});}
 function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;canvas.style.width=window.innerWidth+'px';canvas.style.height=window.innerHeight+'px';ctx.setTransform(1,0,0,1,0,0);if(me&&me.isMaster&&window.sharedRuler)try{socket.emit('setRuler',{room:me.room,ruler:window.sharedRuler});}catch(e){}requestDraw();}window.addEventListener('resize',resize);resize();
 
@@ -329,15 +244,36 @@ socket.on('state',s=>{players=(s.players||[]).filter(p=>p.isNpc||!(p.isMaster===
 socket.on('playerRemoved',id=>{players=players.filter(p=>p.id!==id);requestDraw();updatePlayerList();});
 socket.on('playerAdded',p=>updateOrAddPlayer(p));
 socket.on('npcAdded',p=>updateOrAddPlayer(p));
-  socket.on('playerMoved',p=>{
-  const i=players.findIndex(x=>x.id===p.id);
-  if(i>=0){
-    players[i]={...players[i],...p};
-  }else{
-    players.push(p);
-  }
-  if(p.id===selectedId)syncTokenPanel();
-  requestDraw();
+  socket.on('playerMoved',p=>{const i=players.findIndex(x=>x.id===p.id);if(i>=0){players[i]={...players[i],...p};}else players.push(p);if(p.id===selectedId)syncTokenPanel();requestDraw();});
+socket.on('moved',d=>{const p=players.find(x=>x.id===d.id);if(p){p.x=d.x;p.y=d.y;if(p.id===selectedId)syncTokenPanel();requestDraw();}});
+socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
+
+socket.on('doorAdded',d=>{doors.push(d);requestDraw();});
+socket.on('doorsAdded',ds=>{if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
+socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0){const prev=doors[i];doors[i]=d;}requestDraw();});
+socket.on('doorRemoved',()=>{doors.pop();requestDraw();});
+socket.on('doorsCleared',()=>{doors=[];requestDraw();});
+
+socket.on('wallAdded',w=>{walls.push(w);draw();});
+socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
+socket.on('wallsCleared',()=>{walls=[];draw();});
+socket.on('wallsUpdated',ws=>{walls=Array.isArray(ws)?ws:[];requestDraw();});
+socket.on('wallRemoved',()=>{walls.pop();requestDraw();});
+  socket.on('allCleared',()=>{walls=[];players=players.filter(p=>!p.isNpc);clearLocalMap();});
+socket.on('mapCleared',()=>clearLocalMap());
+socket.on('mapSet',data=>{
+  const src=(typeof data==='object'&&data)?data.src:data;
+  if(!src){clearLocalMap();return;}
+  mapData=src;
+  mapWidth=(typeof data==='object'&&data)?Number(data.w)||0:0;
+  mapHeight=(typeof data==='object'&&data)?Number(data.h)||0:0;
+  mapImg=new Image();
+  mapImg.onload=()=>{
+    if(!mapWidth) mapWidth=mapImg.naturalWidth||mapImg.width||0;
+    if(!mapHeight) mapHeight=mapImg.naturalHeight||mapImg.height||0;
+    requestDraw();
+  };
+  mapImg.src=mapData;
 });
 socket.on('mapUpdated',data=>{
   const src=(typeof data==='object'&&data)?data.src:data;
@@ -566,7 +502,14 @@ canvas.addEventListener('mousedown',e=>{
     return;
   }
 
-  if(tryToggleDoorAt(x,y)){dragging=null;return;}const hit=findTokenAt(x,y,26);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){
+  const w = doorHit.wall;
+  const dist = distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
+  if(dist < 20){
+    socket.emit('toggleDoor',{room:me.room,id:doorHit.id});
+    return;
+  }
+}const hit=findTokenAt(x,y,26);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -639,8 +582,6 @@ canvas.addEventListener('mouseup',e=>{
     wallStart=null;freeDrawPoints=null;circleStart=null;
   }
 
-  if(dragging&&dragging!=='pan')emitMoveNow(dragging);
-  if(dragging&&dragging!=='pan')emitMoveNow(dragging);
   if(dragging==='pan'&&me&&me.isMaster)emitZoomThrottled(true);
   dragging=null;
 });
@@ -711,7 +652,14 @@ canvas.addEventListener('touchstart',e=>{
     return;
   }
 
-  if(tryToggleDoorAt(x,y)){dragging=null;return;}const hit=findTokenAt(x,y,30);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){
+  const w = doorHit.wall;
+  const dist = distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
+  if(dist < 20){
+    socket.emit('toggleDoor',{room:me.room,id:doorHit.id});
+    return;
+  }
+}const hit=findTokenAt(x,y,30);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -1026,26 +974,6 @@ function drawDoorsForMaster(){
 
 
 
-
-function tryToggleDoorAt(x,y){
-  if(!me || !me.isMaster) return false;
-  if(tool==='draw' || tool==='ruler') return false;
-  if(typeof findDoorAt !== 'function') return false;
-
-  const doorHit = findDoorAt(x,y);
-  if(!doorHit || !doorHit.wall) return false;
-
-  const w = doorHit.wall;
-  const dist = distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
-
-  if(dist < (8/scale)){
-    socket.emit('toggleDoor',{room:me.room,id:doorHit.id});
-    return true;
-  }
-  return false;
-}
-
-// HITBOX_PORTA_PRECISA: a porta só ativa quando tocar bem em cima dela.
 function findDoorAt(x,y){
   if(!me||!me.isMaster)return null;
   let best=null,bestD=999999;
@@ -1053,7 +981,7 @@ function findDoorAt(x,y){
     if(!d||!d.wall)return;
     const w=d.wall;
     const dd=distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
-    if(dd<(8/scale)&&dd<bestD){best=d;bestD=dd;}
+    if(dd<20&&dd<bestD){best=d;bestD=dd;}
   });
   return best;
 }
@@ -1301,7 +1229,7 @@ canvas.addEventListener('touchstart',e=>{
   if(e.touches.length!==1 || !me)return;
   const t=e.touches[0];
   const [x,y]=getPos(t);
-  if(tryToggleDoorAt(x,y))return;const hit=(typeof findTokenAt==='function')?findTokenAt(x,y,34):players.find(p=>Math.hypot(p.x-x,p.y-y)<34);
+  const hit=(typeof findTokenAt==='function')?findTokenAt(x,y,34):players.find(p=>Math.hypot(p.x-x,p.y-y)<34);
 
   if(hit && (me.isMaster || (!hit.isNpc && hit.ownerId===me.pid))){
     mobileTapInfo={id:hit.id,x:t.clientX,y:t.clientY,time:Date.now()};
@@ -1337,8 +1265,6 @@ canvas.addEventListener('touchend', e => {
 
   const t = e.changedTouches[0];
   const [x,y] = getPos(t);
-
-  if(tryToggleDoorAt(x,y)) return;
 
   const hit = (typeof findTokenAt === 'function')
     ? findTokenAt(x,y,34)
@@ -1424,70 +1350,3 @@ function playDoorSound(open){}
 
 socket.on('reconnect',()=>{console.log('Reconectado.');if(me&&me.room)socket.emit('join',{room:me.room,name:me.name||'Jogador',isMaster:me.isMaster,tokenId:me.pid});});
 socket.on('disconnect',()=>console.log('Desconectado. Tentando reconectar...'));
-
-socket.on('moved',d=>{
-  const p=players.find(x=>x.id===d.id);
-  if(p){
-    p.x=d.x;
-    p.y=d.y;
-    if(p.id===selectedId)syncTokenPanel();
-    requestDraw();
-  }
-});
-window.debugSyncMove = function(){
-  console.log('SYNC DEBUG', {me, players: players.map(p=>({id:p.id,ownerId:p.ownerId,isNpc:p.isNpc,x:p.x,y:p.y}))});
-};
-
-
-// ===== LISTENERS DE SINCRONIA SEGUROS =====
-if(!window.__tavernaSafeListenersInstalled){
-  window.__tavernaSafeListenersInstalled = true;
-
-  socket.on('playerUpdated',p=>{
-    const i=players.findIndex(x=>x.id===p.id);
-    if(i>=0)players[i]={...players[i],...p}; else players.push(p);
-    if(p.id===selectedId)syncTokenPanel();
-    requestDraw();
-  });
-
-  socket.on('wallAdded',w=>{walls.push(w);requestDraw();});
-  socket.on('wallsAdded',ws=>{if(Array.isArray(ws)){walls.push(...ws);requestDraw();}});
-  socket.on('wallRemoved',()=>{walls.pop();requestDraw();});
-  socket.on('wallsUpdated',ws=>{walls=Array.isArray(ws)?ws:[];requestDraw();});
-  socket.on('wallsCleared',()=>{walls=[];requestDraw();});
-
-  socket.on('doorAdded',d=>{doors=doors||[];doors.push(d);requestDraw();});
-  socket.on('doorsAdded',ds=>{doors=doors||[];if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
-  socket.on('doorUpdated',d=>{
-    doors=doors||[];
-    const i=doors.findIndex(x=>x.id===d.id);
-    if(i>=0)doors[i]=d; else doors.push(d);
-    requestDraw();
-  });
-  socket.on('doorRemoved',()=>{doors=doors||[];doors.pop();requestDraw();});
-  socket.on('doorsCleared',()=>{doors=[];requestDraw();});
-
-  socket.on('mapCleared',()=>{if(typeof clearLocalMap==='function')clearLocalMap();});
-  socket.on('mapSet',data=>{
-    const src=(typeof data==='object'&&data)?data.src:data;
-    if(!src){if(typeof clearLocalMap==='function')clearLocalMap();return;}
-    mapData=src;
-    mapWidth=(typeof data==='object'&&data)?Number(data.w)||0:0;
-    mapHeight=(typeof data==='object'&&data)?Number(data.h)||0:0;
-    mapImg=new Image();
-    mapImg.onload=()=>{
-      if(!mapWidth)mapWidth=mapImg.naturalWidth||mapImg.width||0;
-      if(!mapHeight)mapHeight=mapImg.naturalHeight||mapImg.height||0;
-      requestDraw();
-    };
-    mapImg.src=mapData;
-  });
-
-  socket.on('allCleared',()=>{
-    walls=[];
-    doors=[];
-    players=players.filter(p=>!p.isNpc);
-    if(typeof clearLocalMap==='function')clearLocalMap();
-    requestDraw();
-  });
-}
