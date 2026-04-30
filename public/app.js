@@ -243,7 +243,7 @@ socket.on('playerUpdated',p=>{updateOrAddPlayer(p);requestDraw();});
 
 socket.on('doorAdded',d=>{doors.push(d);requestDraw();});
 socket.on('doorsAdded',ds=>{if(Array.isArray(ds)){doors.push(...ds);requestDraw();}});
-socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0){const prev=doors[i];doors[i]=d;playDoorSound(d.open);}requestDraw();});
+socket.on('doorUpdated',d=>{const i=doors.findIndex(x=>x.id===d.id);if(i>=0){const prev=doors[i];doors[i]=d;}requestDraw();});
 socket.on('doorRemoved',()=>{doors.pop();requestDraw();});
 socket.on('doorsCleared',()=>{doors=[];requestDraw();});
 
@@ -336,6 +336,7 @@ function previewDrawShape(x,y){
 }
 
 
+
 function commitDrawTool(x,y){
   if(!me?.isMaster || tool!=='draw')return false;
 
@@ -344,31 +345,38 @@ function commitDrawTool(x,y){
     if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
       socket.emit('addWall',{room:me.room,wall:[wallStart,end]});
     }
+    wallStart=null;freeDrawPoints=null;circleStart=null;
+    return true;
   }
 
   if(drawMode==='door'&&wallStart){
     const end=[Math.round(x/50)*50,Math.round(y/50)*50];
     if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
-      socket.emit('addDoor',{room:me.room,door:{wall:[wallStart,end],open:false}});
+      socket.emit('addDoor',{room:me.room,door:{id:'door_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),wall:[wallStart,end],open:false}});
     }
+    wallStart=null;freeDrawPoints=null;circleStart=null;
+    return true;
   }
 
   if(drawMode==='free'&&freeDrawPoints&&freeDrawPoints.length>1){
     const wallsBatch=[];
     for(let i=0;i<freeDrawPoints.length-1;i++)wallsBatch.push([freeDrawPoints[i],freeDrawPoints[i+1]]);
     emitWallsBatch(wallsBatch);
+    wallStart=null;freeDrawPoints=null;circleStart=null;
+    return true;
   }
 
   if(drawMode==='circle'&&circleStart){
     const r=Math.hypot(x-circleStart[0],y-circleStart[1]);
     if(r>8)emitWallsBatch(makeCircleWalls(circleStart[0],circleStart[1],r));
+    wallStart=null;freeDrawPoints=null;circleStart=null;
+    return true;
   }
 
-  wallStart=null;
-  freeDrawPoints=null;
-  circleStart=null;
-  return true;
+  wallStart=null;freeDrawPoints=null;circleStart=null;
+  return false;
 }
+
 
 function makeCircleWalls(cx,cy,r){
   const segs=Math.max(12,Math.min(64,Math.round(r/12)));
@@ -483,7 +491,7 @@ canvas.addEventListener('mousedown',e=>{
     return;
   }
 
-  const doorHit=(me&&me.isMaster&&tool==='move')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,26);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,26);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -531,6 +539,7 @@ canvas.addEventListener('mousemove',e=>{
 
 canvas.addEventListener('mouseup',e=>{
   const [x,y]=getPos(e);
+  if(tool==='draw'&&commitDrawTool(x,y)){dragging=null;return;}
 
   if(tool==='ruler'){
     endRuler();
@@ -624,7 +633,7 @@ canvas.addEventListener('touchstart',e=>{
     return;
   }
 
-  const doorHit=(me&&me.isMaster&&tool==='move')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,30);
+  const doorHit=(me&&me.isMaster&&tool!=='draw'&&tool!=='ruler')?findDoorAt(x,y):null;if(doorHit){socket.emit('toggleDoor',{room:me.room,id:doorHit.id});return;}const hit=findTokenAt(x,y,30);
   if(hit&&!me.isMaster&&(hit.isNpc||hit.ownerId!==me.pid))return;
   if(hit&&tool==='move'){
     dragging=hit;
@@ -710,6 +719,7 @@ canvas.addEventListener('touchend',e=>{
   const t=e.changedTouches&&e.changedTouches[0];
   if(t){
     const [x,y]=getPos(t);
+    if(tool==='draw'&&commitDrawTool(x,y)){dragging=null;return;}
     if(wallStart&&me?.isMaster){
       const end=[Math.round(x/50)*50,Math.round(y/50)*50];
       if(wallStart[0]!==end[0]||wallStart[1]!==end[1]){
@@ -897,8 +907,10 @@ function getGridBounds(){
 
 
 
+
 function drawDoorsForMaster(){
   if(!me||!me.isMaster)return;
+
   ctx.save();
   ctx.translate(offsetX,offsetY);
   ctx.scale(scale,scale);
@@ -907,61 +919,33 @@ function drawDoorsForMaster(){
     if(!d||!d.wall)return;
     const w=d.wall;
     const x1=w[0][0], y1=w[0][1], x2=w[1][0], y2=w[1][1];
-    const mx=(x1+x2)/2, my=(y1+y2)/2;
 
     ctx.save();
     ctx.lineCap='round';
     ctx.lineJoin='round';
 
-    // Sombra escura para destacar da parede.
+    // sombra preta para destacar
     ctx.strokeStyle='rgba(0,0,0,0.9)';
-    ctx.lineWidth=10/scale;
-    ctx.setLineDash([]);
+    ctx.lineWidth=9/scale;
     ctx.beginPath();
     ctx.moveTo(x1,y1);
     ctx.lineTo(x2,y2);
     ctx.stroke();
 
-    if(d.open){
-      // Porta aberta: verde tracejada.
-      ctx.strokeStyle='rgba(0,255,120,'+(d.open?1:0.3)+')'; ctx.lineWidth=8/scale;
-      ctx.lineWidth=6/scale;
-      
-      ctx.beginPath();
-      ctx.moveTo(x1,y1);
-      ctx.lineTo(x2,y2);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-      ctx.fillStyle='rgba(40,230,110,1)';
-      ctx.font=`${18/scale}px sans-serif`;
-      ctx.textAlign='center';
-      ctx.shadowColor='#000';
-      ctx.shadowBlur=4/scale;
-      
-    }else{
-      // Porta fechada: vermelha sólida com X no meio.
-      ctx.strokeStyle='rgba(255,0,0,'+(d.open?0.3:1)+')'; ctx.lineWidth=8/scale;
-      ctx.lineWidth=7/scale;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(x1,y1);
-      ctx.lineTo(x2,y2);
-      ctx.stroke();
-
-      ctx.fillStyle='rgba(255,45,45,1)';
-      ctx.font=`${22/scale}px sans-serif`;
-      ctx.textAlign='center';
-      ctx.shadowColor='#000';
-      ctx.shadowBlur=5/scale;
-      
-    }
+    // cor real da porta
+    ctx.strokeStyle=d.open?'rgba(0,255,120,1)':'rgba(255,0,0,1)';
+    ctx.lineWidth=6/scale;
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.stroke();
 
     ctx.restore();
   });
 
   ctx.restore();
 }
+
 
 function findDoorAt(x,y){
   if(!me||!me.isMaster)return null;
@@ -970,7 +954,7 @@ function findDoorAt(x,y){
     if(!d||!d.wall)return;
     const w=d.wall;
     const dd=distPointToSeg(x,y,w[0][0],w[0][1],w[1][0],w[1][1]);
-    if(dd<18&&dd<bestD){best=d;bestD=dd;}
+    if(dd<35&&dd<bestD){best=d;bestD=dd;}
   });
   return best;
 }
@@ -1334,13 +1318,4 @@ document.getElementById('saveMapFile')?.addEventListener('change',e=>{
   r.readAsText(file);
 });
 
-function playDoorSound(open){
-  try{
-    const a=new Audio(open?
-      'https://actions.google.com/sounds/v1/doors/door_open.ogg':
-      'https://actions.google.com/sounds/v1/doors/door_close.ogg'
-    );
-    a.volume=0.4;
-    a.play();
-  }catch(e){}
-}
+function playDoorSound(open){}

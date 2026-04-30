@@ -15,7 +15,7 @@ app.use(express.static(path.join(__dirname,'public')));
 const rooms={};
 
 function cleanRoom(room){return String(room||'mesa1').trim().replace(/[^\w\- ]/g,'').slice(0,50)||'mesa1';}
-function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],doors:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};return rooms[id];}
+function makeRoom(room){const id=cleanRoom(room);rooms[id]=rooms[id]||{players:[],walls:[],doors:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null};rooms[id].doors=rooms[id].doors||[];return rooms[id];};return rooms[id];}
 function isMaster(s){return !!(s.isMaster||(typeof s.pid==='string'&&s.pid.startsWith('master_')));}
 function canControl(s,p){return !!p&&(isMaster(s)||p.ownerId===s.pid);}
 function num(v,f,min,max){const n=Number(v);return Number.isFinite(n)?Math.max(min,Math.min(max,n)):f;}
