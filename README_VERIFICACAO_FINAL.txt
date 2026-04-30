@@ -1,20 +1,18 @@
 Taverna De Bolso - Verificação Final
 
 Validado:
-- server.js e app.js sem erros
-- Railway pronto
-- portas: fechada vermelha, aberta verde
-- porta fechada bloqueia, aberta libera
-- portas visíveis só para Mestre
-- salvar/importar inclui mapa, paredes, portas e NPCs
-- mestre/jogador separados
-- NPC só Mestre
-- spawn separado
-- toolbar limpa para jogador
-- tela cheia
-- mapa/grid/luz/névoa
-- HP de NPC só Mestre
-- régua, dados, desenho e lixeira/desfazer
+- server.js sem erro
+- app.js sem erro
+- pronto para Render
+- PORT via process.env.PORT
+- host 0.0.0.0
+- /health para monitoramento
+- render.yaml e Procfile
+- reconexão automática do Socket.IO
+- portas livres em qualquer ângulo/tamanho
+- portas abrem/fecham com toque do Mestre
+- salvar/importar cena
+- layout mantido
 
 Observação:
-Use o botão Salvar no painel do Mestre para não perder mapas/cenas se o Railway reiniciar.
+No plano grátis do Render, use UptimeRobot em /health a cada 5 minutos para reduzir sleep.

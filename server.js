@@ -18,30 +18,13 @@ const rooms={};
 function cleanRoom(room){return String(room||'mesa1').trim().replace(/[^\w\- ]/g,'').slice(0,50)||'mesa1';}
 function makeRoom(room){
   const id = cleanRoom(room);
-
   if(!rooms[id]){
-    rooms[id] = {
-      players: [],
-      walls: [],
-      doors: [],
-      mapData: null,
-      mapW: 0,
-      mapH: 0,
-      fog: false,
-      globalLight: 0,
-      zoom: 1,
-      offsetX: 0,
-      offsetY: 0,
-      ruler: null,
-      history: []
-    };
+    rooms[id] = {players:[],walls:[],doors:[],mapData:null,mapW:0,mapH:0,fog:false,globalLight:0,zoom:1,offsetX:0,offsetY:0,ruler:null,history:[]};
   }
-
-  if(!Array.isArray(rooms[id].players)) rooms[id].players = [];
-  if(!Array.isArray(rooms[id].walls)) rooms[id].walls = [];
-  if(!Array.isArray(rooms[id].doors)) rooms[id].doors = [];
-  if(!Array.isArray(rooms[id].history)) rooms[id].history = [];
-
+  if(!Array.isArray(rooms[id].players)) rooms[id].players=[];
+  if(!Array.isArray(rooms[id].walls)) rooms[id].walls=[];
+  if(!Array.isArray(rooms[id].doors)) rooms[id].doors=[];
+  if(!Array.isArray(rooms[id].history)) rooms[id].history=[];
   return rooms[id];
 }
 
@@ -162,6 +145,7 @@ io.on('connection',s=>{
   const r=rooms[cleanRoom(d&&d.room)]||rooms[s.room];if(!r||!d)return;
   const p=r.players.find(x=>x.id===d.id);if(!p||!canControl(s,p))return;
   const nx=Number(d.x),ny=Number(d.y);if(!Number.isFinite(nx)||!Number.isFinite(ny))return;
+  if(Math.hypot((p.x||0)-nx,(p.y||0)-ny)<0.5)return;
   const radius=tokenRadius(p);
   for(const w of r.walls){
     if(lineIntersect(p.x,p.y,nx,ny,w[0][0],w[0][1],w[1][0],w[1][1]))return;
@@ -174,7 +158,7 @@ io.on('connection',s=>{
     if(blockedByWallWithRadius(nx,ny,w,radius))return;
   }
   if(collidesWithToken(r,p,nx,ny))return;
-  p.x=nx;p.y=ny;clampTokenToMapServer(p, r);io.to(s.room).emit('playerMoved',p);io.to(s.room).emit('moved',{id:p.id,x:p.x,y:p.y});
+  p.x=nx;p.y=ny;clampTokenToMapServer(p, r);s.to(s.room).emit('playerMoved',p);s.emit('moved',{id:p.id,x:p.x,y:p.y});
  });
 
  s.on('updatePlayer',d=>{
